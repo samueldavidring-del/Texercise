@@ -1,0 +1,20 @@
+{
+  "images" : [
+    {
+      "filename" : "CA5BB516-F09E-4D43-A196-BFF2D70C9C38.jpeg",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    },
+    {
+      "filename" : "playstore.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "512x512"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
