@@ -9,9 +9,12 @@ final class HealthStore: ObservableObject {
     @Published var stepsToday = 0
     @Published var distanceTodayMiles: Double = 0.0
     @Published var recentWorkouts: [WorkoutSummary] = []
+    @Published var allWorkouts: [WorkoutSummary] = []
     @Published var historicalSteps: [Date: Int] = [:]
+    @Published var totalWorkoutsCount: Int = 0
     
     private let hasRequestedAuthKey = "hasRequestedHealthAuthorization"
+    private var stepObserverQuery: HKObserverQuery?
     
     var hasRequestedAuthorization: Bool {
         UserDefaults.standard.bool(forKey: hasRequestedAuthKey)
@@ -23,34 +26,50 @@ final class HealthStore: ObservableObject {
         }
     }
     
+    // MARK: - Authorization
+    // Runs a today query to check access. Proceeds regardless of whether data
+    // exists — an empty result (0 steps at 5 AM) is not an access denial.
+    // Only a genuine authorization error stops loading.
+
     private func checkAuthorizationStatus() {
         guard HKHealthStore.isHealthDataAvailable() else {
             print("❌ Health data not available on this device")
-            self.isAuthorized = false
+            isAuthorized = false
             return
         }
         
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
-            self.isAuthorized = false
+            isAuthorized = false
             return
         }
         
         let now = Date()
         let startOfDay = Calendar.current.startOfDay(for: now)
-        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+        // Use a wide predicate (start of day to now) but treat ANY result —
+        // including nil sumQuantity with no error — as authorized.
+        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: [])
         
-        let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
+        let query = HKStatisticsQuery(
+            quantityType: stepType,
+            quantitySamplePredicate: predicate,
+            options: .cumulativeSum
+        ) { _, _, error in
             DispatchQueue.main.async {
-                if let error = error {
-                    print("❌ Error checking authorization: \(error.localizedDescription)")
+                // Only block on a real authorization error, not "no data" errors.
+                // HealthKit returns specific error codes for auth failures.
+                if let error = error as? HKError, error.code == .errorAuthorizationDenied {
+                    print("❌ HealthKit authorization denied: \(error.localizedDescription)")
                     self.isAuthorized = false
                     return
                 }
+                // Any other result (including "no data available") means we have access
                 print("✅ Health data is accessible - authorized")
                 self.isAuthorized = true
                 self.loadToday()
                 self.loadRecentWorkouts()
-                self.loadLast30DaysSteps()
+                self.loadAllWorkouts()
+                self.loadSteps(days: 90)
+                self.startStepObserver()
             }
         }
         store.execute(query)
@@ -83,11 +102,10 @@ final class HealthStore: ObservableObject {
         }
     }
     
+    // MARK: - Load Today
+
     func loadToday() {
-        guard isAuthorized else {
-            print("⚠️ Cannot load data - not authorized")
-            return
-        }
+        guard isAuthorized else { return }
         loadStepsToday()
         loadDistanceToday()
     }
@@ -95,32 +113,58 @@ final class HealthStore: ObservableObject {
     private func loadStepsToday() {
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return }
         
+        let calendar = Calendar.current
         let now = Date()
-        let startOfDay = Calendar.current.startOfDay(for: now)
-        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+        let startOfDay = calendar.startOfDay(for: now)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? now
+        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: endOfDay, options: .strictStartDate)
         
         let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
             if let error = error {
-                print("❌ Error loading steps: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.stepsToday = 0
-                    self.historicalSteps[Calendar.current.startOfDay(for: Date())] = 0
-                }
+                print("❌ Error loading steps today: \(error.localizedDescription)")
                 return
             }
-            let steps: Int
-            if let quantity = result?.sumQuantity() {
-                steps = Int(quantity.doubleValue(for: .count()))
-            } else {
-                steps = 0
-            }
+            let steps = Int(result?.sumQuantity()?.doubleValue(for: .count()) ?? 0)
             DispatchQueue.main.async {
                 self.stepsToday = steps
-                self.historicalSteps[Calendar.current.startOfDay(for: Date())] = steps
+                self.historicalSteps[calendar.startOfDay(for: now)] = steps
                 print("📊 Steps today: \(steps)")
             }
         }
         store.execute(query)
+    }
+    
+    // MARK: - Step Observer
+    
+    private func startStepObserver() {
+        guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return }
+        
+        if let existing = stepObserverQuery {
+            store.stop(existing)
+        }
+        
+        let observer = HKObserverQuery(sampleType: stepType, predicate: nil) { [weak self] _, completionHandler, error in
+            if let error = error {
+                print("❌ Step observer error: \(error.localizedDescription)")
+                completionHandler()
+                return
+            }
+            print("🔄 Step observer fired — refreshing steps")
+            self?.loadStepsToday()
+            self?.loadSteps(days: 90)
+            completionHandler()
+        }
+        
+        stepObserverQuery = observer
+        store.execute(observer)
+        
+        store.enableBackgroundDelivery(for: stepType, frequency: .immediate) { success, error in
+            if success {
+                print("✅ Step background delivery enabled")
+            } else if let error = error {
+                print("⚠️ Step background delivery failed: \(error.localizedDescription)")
+            }
+        }
     }
     
     private func loadDistanceToday() {
@@ -135,8 +179,7 @@ final class HealthStore: ObservableObject {
                 print("❌ Error loading distance: \(error.localizedDescription)")
                 return
             }
-            let meters = result?.sumQuantity()?.doubleValue(for: .meter()) ?? 0
-            let miles = meters * 0.000621371
+            let miles = (result?.sumQuantity()?.doubleValue(for: .meter()) ?? 0) * 0.000621371
             DispatchQueue.main.async {
                 self.distanceTodayMiles = miles
                 print("📊 Distance today: \(String(format: "%.2f", miles)) miles")
@@ -145,19 +188,27 @@ final class HealthStore: ObservableObject {
         store.execute(query)
     }
     
-    func loadLast30DaysSteps() {
+    // MARK: - Historical Steps
+
+    func loadSteps(days: Int) {
         guard isAuthorized else { return }
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return }
         
         let calendar = Calendar.current
-        let endDate = Date()
-        guard let startDate = calendar.date(byAdding: .day, value: -30, to: endDate) else { return }
+        let todayStart = calendar.startOfDay(for: Date())
+        let endDate = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? Date()
+        guard let startDate = calendar.date(byAdding: .day, value: -days, to: todayStart) else { return }
         
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: [])
         var interval = DateComponents()
         interval.day = 1
-        let anchorDate = calendar.startOfDay(for: endDate)
-        
+
+        var anchorComponents = DateComponents()
+        anchorComponents.hour = 0
+        anchorComponents.minute = 0
+        anchorComponents.second = 0
+        let anchorDate = calendar.date(from: anchorComponents) ?? startDate
+
         let query = HKStatisticsCollectionQuery(
             quantityType: stepType,
             quantitySamplePredicate: predicate,
@@ -165,34 +216,47 @@ final class HealthStore: ObservableObject {
             anchorDate: anchorDate,
             intervalComponents: interval
         )
-        
+
         query.initialResultsHandler = { _, results, error in
             if let error = error {
                 print("❌ Error loading historical steps: \(error.localizedDescription)")
                 return
             }
-            guard let results = results else { return }
-            
+            guard let results = results else {
+                print("❌ Historical steps results were nil")
+                return
+            }
+
             var stepsCache: [Date: Int] = [:]
+            var cursor = startDate
+            while cursor < endDate {
+                stepsCache[calendar.startOfDay(for: cursor)] = 0
+                cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? cursor.addingTimeInterval(86400)
+            }
+
+            var nonZeroDays = 0
             results.enumerateStatistics(from: startDate, to: endDate) { stats, _ in
                 let day = calendar.startOfDay(for: stats.startDate)
-                let steps: Int
-                if let quantity = stats.sumQuantity() {
-                    steps = Int(quantity.doubleValue(for: .count()))
-                } else {
-                    steps = 0
-                }
+                let steps = Int(stats.sumQuantity()?.doubleValue(for: .count()) ?? 0)
                 stepsCache[day] = steps
+                if steps > 0 { nonZeroDays += 1 }
             }
-            
+
+            print("✅ Loaded historical steps for \(stepsCache.count) days (\(days)d range) — \(nonZeroDays) days with steps")
+
             DispatchQueue.main.async {
+                var merged = self.historicalSteps
                 for (date, steps) in stepsCache {
-                    self.historicalSteps[date] = steps
+                    merged[date] = steps
                 }
-                print("✅ Loaded historical steps for \(stepsCache.count) days")
+                self.historicalSteps = merged
             }
         }
         store.execute(query)
+    }
+    
+    func loadLast30DaysSteps() {
+        loadSteps(days: 90)
     }
     
     func steps(on date: Date) -> Int {
@@ -210,12 +274,7 @@ final class HealthStore: ObservableObject {
         let predicate  = HKQuery.predicateForSamples(withStart: startOfDay, end: endOfDay, options: .strictStartDate)
         
         let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-            let steps: Int
-            if let quantity = result?.sumQuantity() {
-                steps = Int(quantity.doubleValue(for: .count()))
-            } else {
-                steps = 0
-            }
+            let steps = Int(result?.sumQuantity()?.doubleValue(for: .count()) ?? 0)
             DispatchQueue.main.async {
                 self.historicalSteps[startOfDay] = steps
                 completion(steps)
@@ -223,6 +282,8 @@ final class HealthStore: ObservableObject {
         }
         store.execute(query)
     }
+    
+    // MARK: - Heart Rate
     
     private func fetchHeartRateStats(for workout: HKWorkout, completion: @escaping (Double?, Double?) -> Void) {
         guard let heartRateType = HKQuantityType.quantityType(forIdentifier: .heartRate) else {
@@ -241,6 +302,36 @@ final class HealthStore: ObservableObject {
             let avg  = result?.averageQuantity()?.doubleValue(for: unit)
             let max  = result?.maximumQuantity()?.doubleValue(for: unit)
             completion(avg, max)
+        }
+        store.execute(query)
+    }
+    
+    // MARK: - Workouts
+    // Limited to 500 to prevent freeze on large workout histories
+    
+    func loadAllWorkouts() {
+        guard isAuthorized else { return }
+        
+        let workoutType    = HKObjectType.workoutType()
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        
+        let query = HKSampleQuery(
+            sampleType: workoutType,
+            predicate: nil,
+            limit: 500,
+            sortDescriptors: [sortDescriptor]
+        ) { _, samples, error in
+            if let error = error {
+                print("❌ Error loading all workouts: \(error.localizedDescription)")
+                return
+            }
+            guard let workouts = samples as? [HKWorkout] else { return }
+            let summaries = workouts.map { WorkoutSummary(workout: $0) }
+            DispatchQueue.main.async {
+                self.allWorkouts = summaries
+                self.totalWorkoutsCount = summaries.count
+                print("✅ Loaded \(summaries.count) total workouts (no HR)")
+            }
         }
         store.execute(query)
     }
@@ -280,7 +371,28 @@ final class HealthStore: ObservableObject {
             
             group.notify(queue: .main) {
                 self.recentWorkouts = summaries.sorted { $0.startDate > $1.startDate }
-                print("✅ Loaded \(summaries.count) workouts with stats")
+                print("✅ Loaded \(summaries.count) recent workouts with stats")
+            }
+        }
+        store.execute(query)
+    }
+    
+    func loadTotalWorkoutsCount(from installDate: Date) {
+        guard isAuthorized else { return }
+        
+        let workoutType    = HKObjectType.workoutType()
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let predicate      = HKQuery.predicateForSamples(withStart: installDate, end: Date(), options: .strictStartDate)
+        
+        let query = HKSampleQuery(sampleType: workoutType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sortDescriptor]) { _, samples, error in
+            if let error = error {
+                print("❌ Error loading total workouts: \(error.localizedDescription)")
+                return
+            }
+            let count = (samples as? [HKWorkout])?.count ?? 0
+            DispatchQueue.main.async {
+                self.totalWorkoutsCount = count
+                print("✅ Workouts since install: \(count)")
             }
         }
         store.execute(query)
@@ -325,13 +437,11 @@ final class HealthStore: ObservableObject {
                 if let error = error {
                     print("❌ Error adding samples: \(error.localizedDescription)")
                 }
-                
                 builder.endCollection(withEnd: endDate) { success, error in
                     if let error = error {
                         print("❌ Error ending workout collection: \(error.localizedDescription)")
                         return
                     }
-                    
                     builder.finishWorkout { workout, error in
                         if let error = error {
                             print("❌ Error finishing workout: \(error.localizedDescription)")
@@ -341,6 +451,7 @@ final class HealthStore: ObservableObject {
                             print("✅ Workout saved successfully")
                             DispatchQueue.main.async {
                                 self.loadRecentWorkouts()
+                                self.loadAllWorkouts()
                             }
                         }
                     }
@@ -372,26 +483,13 @@ final class HealthStore: ObservableObject {
                 }
                 if success {
                     print("✅ Workout deleted successfully")
-                    DispatchQueue.main.async { self.loadRecentWorkouts() }
+                    DispatchQueue.main.async {
+                        self.loadRecentWorkouts()
+                        self.loadAllWorkouts()
+                    }
                 }
             }
         }
         store.execute(query)
-    }
-    
-    private func activityName(for type: HKWorkoutActivityType) -> String {
-        switch type {
-        case .running:                     return "Running"
-        case .walking:                     return "Walking"
-        case .cycling:                     return "Cycling"
-        case .swimming:                    return "Swimming"
-        case .hiking:                      return "Hiking"
-        case .yoga:                        return "Yoga"
-        case .functionalStrengthTraining:  return "Strength Training"
-        case .traditionalStrengthTraining: return "Weight Lifting"
-        case .elliptical:                  return "Elliptical"
-        case .rowing:                      return "Rowing"
-        default:                           return "Workout"
-        }
     }
 }

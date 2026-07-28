@@ -2,22 +2,73 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.yourcompany.texercise</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>texercise</string>
-			</array>
-		</dict>
-	</array>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>strava</string>
-	</array>
-	<key>NSFamilyControlUsageDescription</key>
-	<string>Texercise uses Family Controls to track which apps count against your screen time points.</string>
+    <key>NSFamilyControlsUsageDescription</key>
+    <string>Texercise uses Family Controls to track which apps count against your screen time points.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>strava</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>texercise</string>
+            </array>
+        </dict>
+    </array>
+    <key>UIApplicationShortcutItems</key>
+    <array>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.pushups</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Log Pushups</string>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.strengthtraining.traditional</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.core.training</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Plank</string>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.plank</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.squats</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Log Squats</string>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.strengthtraining.functional</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.situps</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Log Sit-ups</string>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.core.training</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.lunges</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Log Lunges</string>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.walk</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.samuelring.texercise.plank</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Log Plank</string>
+            <key>UIApplicationShortcutItemIconSymbolName</key>
+            <string>figure.core.training</string>
+        </dict>
+    </array>
 </dict>
 </plist>

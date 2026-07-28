@@ -17,7 +17,6 @@ struct OnboardingView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Progress dots
                 HStack(spacing: 8) {
                     ForEach(0..<3) { step in
                         Circle()
@@ -28,28 +27,24 @@ struct OnboardingView: View {
                 .padding(.top, 24)
                 
                 TabView(selection: $currentStep) {
+                    
                     // MARK: Step 0 - Welcome
                     VStack(spacing: 24) {
                         Spacer()
-                        
                         Image(systemName: "figure.run.circle.fill")
                             .font(.system(size: 80))
                             .foregroundColor(.blue)
-                        
                         VStack(spacing: 12) {
                             Text("Welcome to Texercise")
                                 .font(.largeTitle.bold())
                                 .multilineTextAlignment(.center)
-                            
                             Text("Earn points by staying active. Spend points on screen time. Stay accountable.")
                                 .font(.body)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
-                        
                         Spacer()
-                        
                         Button {
                             withAnimation { currentStep = 1 }
                         } label: {
@@ -69,34 +64,26 @@ struct OnboardingView: View {
                     // MARK: Step 1 - Health Access
                     VStack(spacing: 24) {
                         Spacer()
-                        
                         Image(systemName: "heart.circle.fill")
                             .font(.system(size: 80))
                             .foregroundColor(.red)
-                        
                         VStack(spacing: 12) {
                             Text("Connect Health Data")
                                 .font(.largeTitle.bold())
                                 .multilineTextAlignment(.center)
-                            
                             Text("Texercise reads your steps, workouts and activity from Apple Health to award points automatically.")
                                 .font(.body)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
-                        
                         Spacer()
-                        
                         VStack(spacing: 12) {
                             if healthAuthorized {
                                 HStack {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                    Text("Health access granted")
-                                        .foregroundColor(.green)
+                                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                                    Text("Health access granted").foregroundColor(.green)
                                 }
-                                
                                 Button {
                                     withAnimation { currentStep = 2 }
                                 } label: {
@@ -111,12 +98,9 @@ struct OnboardingView: View {
                             } else {
                                 Button {
                                     healthStore.requestAuthorization()
-                                    // Check after a short delay
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                                         healthAuthorized = healthStore.isAuthorized
-                                        if healthAuthorized {
-                                            withAnimation { currentStep = 2 }
-                                        }
+                                        if healthAuthorized { withAnimation { currentStep = 2 } }
                                     }
                                 } label: {
                                     HStack {
@@ -130,12 +114,10 @@ struct OnboardingView: View {
                                     .foregroundColor(.white)
                                     .cornerRadius(12)
                                 }
-                                
                                 Button {
                                     withAnimation { currentStep = 2 }
                                 } label: {
-                                    Text("Skip for now")
-                                        .foregroundColor(.secondary)
+                                    Text("Skip for now").foregroundColor(.secondary)
                                 }
                             }
                         }
@@ -147,34 +129,26 @@ struct OnboardingView: View {
                     // MARK: Step 2 - Family Controls / App Tracking
                     VStack(spacing: 24) {
                         Spacer()
-                        
                         Image(systemName: "iphone.circle.fill")
                             .font(.system(size: 80))
                             .foregroundColor(.purple)
-                        
                         VStack(spacing: 12) {
                             Text("Choose Apps to Track")
                                 .font(.largeTitle.bold())
                                 .multilineTextAlignment(.center)
-                            
                             Text("Select which apps count against your points. Apps you haven't earned through activity will be restricted.")
                                 .font(.body)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
-                        
                         Spacer()
-                        
                         VStack(spacing: 12) {
                             if familyControlsManager.isAuthorized {
                                 HStack {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                    Text("Screen Time access granted")
-                                        .foregroundColor(.green)
+                                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                                    Text("Screen Time access granted").foregroundColor(.green)
                                 }
-                                
                                 Button {
                                     showingAppPicker = true
                                 } label: {
@@ -189,7 +163,6 @@ struct OnboardingView: View {
                                     .foregroundColor(.white)
                                     .cornerRadius(12)
                                 }
-                                
                                 Button {
                                     completeOnboarding()
                                 } label: {
@@ -219,12 +192,10 @@ struct OnboardingView: View {
                                     .foregroundColor(.white)
                                     .cornerRadius(12)
                                 }
-                                
                                 Button {
                                     completeOnboarding()
                                 } label: {
-                                    Text("Skip for now")
-                                        .foregroundColor(.secondary)
+                                    Text("Skip for now").foregroundColor(.secondary)
                                 }
                             }
                         }
@@ -241,7 +212,11 @@ struct OnboardingView: View {
                 isPresented: $showingAppPicker,
                 selection: Binding(
                     get: { ScreenTimeCategoryStore.shared.activitySelection },
-                    set: { ScreenTimeCategoryStore.shared.activitySelection = $0 }
+                    set: { newVal in
+                        ScreenTimeCategoryStore.shared.activitySelection = newVal
+                        // Start monitoring as soon as user picks apps
+                        ScreenTimeCategoryStore.shared.startMonitoringIfNeeded()
+                    }
                 )
             )
             .onAppear {
@@ -252,6 +227,10 @@ struct OnboardingView: View {
     }
     
     private func completeOnboarding() {
+        // Start monitoring if the user selected apps and authorized Family Controls
+        if familyControlsManager.isAuthorized {
+            ScreenTimeCategoryStore.shared.startMonitoringIfNeeded()
+        }
         UserDefaults.standard.set(true, forKey: hasOnboardedKey)
         dismiss()
     }

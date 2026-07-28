@@ -7,6 +7,7 @@ struct TodayView: View {
     @EnvironmentObject var exerciseStore: ExerciseStore
     @EnvironmentObject var pointSettings: PointSettingsStore
     @EnvironmentObject var goalSettings: GoalSettingsStore
+    @EnvironmentObject var blockingEventStore: BlockingEventStore
     
     @Binding var showingSettings: Bool
     
@@ -35,8 +36,11 @@ struct TodayView: View {
         todaysWorkouts.reduce(0) { $0 + $1.durationMinutes }
     }
     
-    private var todayExerciseReps: Int {
-        exerciseStore.exercises(for: Date()).reduce(0) { $0 + Int($1.count) }
+    // Exercise ring counts points (not raw reps/seconds)
+    private var todayExercisePoints: Int {
+        exerciseStore.exercises(for: Date()).reduce(0) { total, entry in
+            total + pointsForExerciseEntry(entry)
+        }
     }
     
     // Progress calculations
@@ -53,27 +57,55 @@ struct TodayView: View {
     }
     
     private var exerciseProgress: Double {
-        Double(todayExerciseReps) / Double(goalSettings.goals.dailyExerciseRepsGoal)
+        Double(todayExercisePoints) / Double(goalSettings.goals.dailyExerciseRepsGoal)
     }
     
+    /// Points for a single ExerciseEntry — uses per-exercise settings
+    private func pointsForExerciseEntry(_ entry: ExerciseEntry) -> Int {
+        let type = entry.type?.lowercased() ?? ""
+        let count = Int(entry.count)
+        let s = pointSettings.settings
+        if type.contains("plank") {
+            return s.plankSecondsPerPoint > 0 ? count / s.plankSecondsPerPoint : 0
+        } else if type.contains("push") {
+            return s.pushupsPerPoint > 0 ? count / s.pushupsPerPoint : 0
+        } else if type.contains("squat") {
+            return s.squatsPerPoint > 0 ? count / s.squatsPerPoint : 0
+        } else if type.contains("sit") {
+            return s.situpsPerPoint > 0 ? count / s.situpsPerPoint : 0
+        } else if type.contains("lunge") {
+            return s.lungeRepsPerPoint > 0 ? count / s.lungeRepsPerPoint : 0
+        } else {
+            return count
+        }
+    }
+
+    /// Points for a grouped exercise type + total count (used in summary rows)
     private func pointsForExerciseType(_ type: String, count: Int) -> Int {
-        if type.lowercased().contains("plank") {
-            return count / pointSettings.settings.plankSecondsPerPoint
+        let t = type.lowercased()
+        let s = pointSettings.settings
+        if t.contains("plank") {
+            return s.plankSecondsPerPoint > 0 ? count / s.plankSecondsPerPoint : 0
+        } else if t.contains("push") {
+            return s.pushupsPerPoint > 0 ? count / s.pushupsPerPoint : 0
+        } else if t.contains("squat") {
+            return s.squatsPerPoint > 0 ? count / s.squatsPerPoint : 0
+        } else if t.contains("sit") {
+            return s.situpsPerPoint > 0 ? count / s.situpsPerPoint : 0
+        } else if t.contains("lunge") {
+            return s.lungeRepsPerPoint > 0 ? count / s.lungeRepsPerPoint : 0
         } else {
             return count
         }
     }
     
     private func checkAndCancelNotification() {
-        NotificationScheduler.cancelIfGoalsMet(
-            stepsProgress: stepsProgress,
-            pointsProgress: pointsProgress,
-            workoutProgress: workoutProgress,
-            exerciseProgress: exerciseProgress,
-            stepsEnabled: goalSettings.goals.stepsGoalEnabled,
-            pointsEnabled: goalSettings.goals.pointsGoalEnabled,
-            workoutEnabled: goalSettings.goals.workoutGoalEnabled,
-            exerciseEnabled: goalSettings.goals.exerciseGoalEnabled
+        NotificationScheduler.updateGoalReminder(
+            goals: goalSettings.goals,
+            stepsToday: healthStore.stepsToday,
+            pointsToday: todayPoints,
+            workoutMinutesToday: todayWorkoutMinutes,
+            exerciseRepsToday: todayExercisePoints
         )
     }
     
@@ -166,7 +198,7 @@ struct TodayView: View {
                                         Text("Exercise")
                                             .font(.caption2)
                                     }
-                                    Text("\(todayExerciseReps)/\(goalSettings.goals.dailyExerciseRepsGoal)")
+                                    Text("\(todayExercisePoints)/\(goalSettings.goals.dailyExerciseRepsGoal)")
                                         .font(.caption2.bold())
                                         .foregroundColor(.secondary)
                                 }
@@ -309,40 +341,50 @@ struct TodayView: View {
                             
                             VStack(spacing: 8) {
                                 ForEach(exerciseSummary, id: \.key) { type, total in
-                                    HStack {
-                                        Image(systemName: iconForExerciseType(type))
-                                            .foregroundColor(.purple)
-                                            .frame(width: 30)
-                                        
-                                        Text(type)
-                                            .font(.headline)
-                                        
-                                        Spacer()
-                                        
-                                        if type.lowercased().contains("plank") {
-                                            Text("\(total) sec")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        } else {
-                                            Text("\(total) reps")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
+                                    NavigationLink {
+                                        DayDetailView(date: Date())
+                                            .environmentObject(healthStore)
+                                            .environmentObject(exerciseStore)
+                                            .environmentObject(screenTimeStore)
+                                            .environmentObject(pointSettings)
+                                            .environmentObject(blockingEventStore)
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: iconForExerciseType(type))
+                                                .foregroundColor(.purple)
+                                                .frame(width: 30)
+                                            
+                                            Text(type)
+                                                .font(.headline)
+                                            
+                                            Spacer()
+                                            
+                                            if type.lowercased().contains("plank") {
+                                                Text("\(total) sec")
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                            } else {
+                                                Text("\(total) reps")
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            
+                                            Text("+\(pointsForExerciseType(type, count: total)) pts")
+                                                .font(.headline)
+                                                .foregroundColor(.green)
                                         }
-                                        
-                                        Text("+\(pointsForExerciseType(type, count: total))")
-                                            .font(.headline)
-                                            .foregroundColor(.green)
+                                        .padding()
+                                        .background(Color(.secondarySystemBackground))
+                                        .cornerRadius(12)
                                     }
-                                    .padding()
-                                    .background(Color(.secondarySystemBackground))
-                                    .cornerRadius(12)
+                                    .buttonStyle(PlainButtonStyle())
                                 }
                             }
                             .padding(.horizontal)
                         }
                     }
                     
-                    // MARK: - Screen Time
+                    // MARK: - Screen Time (summary only — detail in History)
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("Screen Time")
@@ -357,26 +399,54 @@ struct TodayView: View {
                         }
                         .padding(.horizontal)
                         
-                        let todaysScreenTime = screenTimeStore.entries(on: Date())
                         let totalMinutes = screenTimeStore.totalMinutes(on: Date())
+                        let penaltyPoints = totalMinutes / max(1, pointSettings.settings.screenTimeMinutesPerPenalty)
                         
-                        if todaysScreenTime.isEmpty {
-                            Text("No screen time logged yet")
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal)
-                        } else {
-                            VStack(spacing: 8) {
+                        NavigationLink {
+                            DayDetailView(date: Date())
+                                .environmentObject(healthStore)
+                                .environmentObject(exerciseStore)
+                                .environmentObject(screenTimeStore)
+                                .environmentObject(pointSettings)
+                                .environmentObject(blockingEventStore)
+                        } label: {
+                            HStack {
+                                Image(systemName: "iphone")
+                                    .foregroundColor(.red)
+                                    .frame(width: 30)
+                                Text("Total Today")
+                                    .font(.headline)
+                                Spacer()
+                                Text("\(totalMinutes) min")
+                                    .foregroundColor(.secondary)
+                                Text("-\(penaltyPoints) pts")
+                                    .font(.headline)
+                                    .foregroundColor(.red)
+                            }
+                            .padding()
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.horizontal)
+                        
+                        if blockingEventStore.todayCount > 0 {
+                            NavigationLink {
+                                DayDetailView(date: Date())
+                                    .environmentObject(healthStore)
+                                    .environmentObject(exerciseStore)
+                                    .environmentObject(screenTimeStore)
+                                    .environmentObject(pointSettings)
+                                    .environmentObject(blockingEventStore)
+                            } label: {
                                 HStack {
-                                    Image(systemName: "iphone")
+                                    Image(systemName: "lock.fill")
                                         .foregroundColor(.red)
                                         .frame(width: 30)
-                                    Text("Total Screen Time")
+                                    Text("Blocked Today")
                                         .font(.headline)
                                     Spacer()
-                                    Text("\(totalMinutes) min")
-                                        .font(.headline)
-                                        .foregroundColor(.red)
-                                    Text("-\(totalMinutes / pointSettings.settings.screenTimeMinutesPerPenalty)")
+                                    Text("\(blockingEventStore.todayCount) time\(blockingEventStore.todayCount == 1 ? "" : "s")")
                                         .font(.headline)
                                         .foregroundColor(.red)
                                 }
@@ -384,8 +454,10 @@ struct TodayView: View {
                                 .background(Color(.secondarySystemBackground))
                                 .cornerRadius(12)
                             }
+                            .buttonStyle(PlainButtonStyle())
                             .padding(.horizontal)
                         }
+                        
                     }
                 }
                 .padding(.vertical)
@@ -403,7 +475,7 @@ struct TodayView: View {
             .onAppear {
                 checkAndCancelNotification()
             }
-            .onChange(of: todayPoints) { _ in
+            .onChange(of: todayPoints) {
                 checkAndCancelNotification()
             }
             .sheet(isPresented: $showingExerciseOptions) {
@@ -415,8 +487,9 @@ struct TodayView: View {
                     .environmentObject(healthStore)
             }
             .sheet(isPresented: $showingAddScreenTime) {
-                AddScreenTimeView()
+                ScreenTimeLogView()
                     .environmentObject(screenTimeStore)
+                    .environmentObject(pointSettings)
             }
         }
     }

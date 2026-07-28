@@ -44,6 +44,12 @@ class ScreenTimeStore: ObservableObject {
         }
     }
     
+    /// Convenience method for manually logging screen time right now.
+    /// categoryLabel comes from the FamilyActivityPicker selection in ScreenTimeLogView.
+    func addManualEntry(minutes: Int, categoryLabel: String? = nil) {
+        addEntry(date: Date(), minutes: minutes, category: categoryLabel)
+    }
+    
     func deleteEntry(_ entry: ScreenTimeEntry) {
         let objectID = entry.objectID
         let context = PersistenceController.shared.container.newBackgroundContext()

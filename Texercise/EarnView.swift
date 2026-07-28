@@ -1,31 +1,43 @@
 import SwiftUI
 
+// Wrapper to make String identifiable for fullScreenCover(item:)
+struct IdentifiableExercise: Identifiable {
+    let id = UUID()
+    let name: String
+}
+
 struct EarnView: View {
     @EnvironmentObject var exerciseStore: ExerciseStore
     @EnvironmentObject var screenTimeStore: ScreenTimeStore
     @EnvironmentObject var healthStore: HealthStore
     @EnvironmentObject var pointSettings: PointSettingsStore
-    
+
+    @Binding var selectedTab: Int
+
     @State private var showingExerciseOptions = false
     @State private var showingWorkoutLog = false
     @State private var showingScreenTimeLog = false
     @State private var showingScreenTimeGuide = false
     @State private var showingSettings = false
-    
+    @State private var quickActionExercise: IdentifiableExercise? = nil
+
+    init(selectedTab: Binding<Int> = .constant(1)) {
+        self._selectedTab = selectedTab
+    }
+
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    
+
                     Text("Earn Points")
                         .font(.largeTitle.bold())
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // MARK: Exercise and Workout Logging
+
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Activities")
                             .font(.headline)
-                        
+
                         Button {
                             showingExerciseOptions = true
                         } label: {
@@ -34,15 +46,14 @@ struct EarnView: View {
                                     .frame(width: 30)
                                 Text("Log Exercise")
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right").foregroundColor(.secondary)
                             }
                             .padding()
                             .background(Color(.secondarySystemBackground))
                             .cornerRadius(12)
                         }
                         .foregroundColor(.primary)
-                        
+
                         Button {
                             showingWorkoutLog = true
                         } label: {
@@ -51,8 +62,7 @@ struct EarnView: View {
                                     .frame(width: 30)
                                 Text("Log Workout")
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right").foregroundColor(.secondary)
                             }
                             .padding()
                             .background(Color(.secondarySystemBackground))
@@ -63,12 +73,10 @@ struct EarnView: View {
                     .padding()
                     .background(Color(.tertiarySystemBackground))
                     .cornerRadius(16)
-                    
-                    // MARK: Screen Time
+
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
-                            Text("Screen Time")
-                                .font(.headline)
+                            Text("Screen Time").font(.headline)
                             Spacer()
                             Button {
                                 showingScreenTimeGuide = true
@@ -81,7 +89,7 @@ struct EarnView: View {
                                 .foregroundColor(.accentColor)
                             }
                         }
-                        
+
                         Button {
                             showingScreenTimeLog = true
                         } label: {
@@ -90,8 +98,7 @@ struct EarnView: View {
                                     .frame(width: 30)
                                 Text("Log Screen Time")
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right").foregroundColor(.secondary)
                             }
                             .padding()
                             .background(Color(.secondarySystemBackground))
@@ -102,19 +109,17 @@ struct EarnView: View {
                     .padding()
                     .background(Color(.tertiarySystemBackground))
                     .cornerRadius(16)
-                    
-                    // MARK: Health Authorization
+
                     if !healthStore.isAuthorized {
                         VStack(spacing: 12) {
                             Text(healthStore.hasRequestedAuthorization ? "Health Access Needed" : "Health Access Required")
                                 .font(.headline)
-                            
+
                             if healthStore.hasRequestedAuthorization {
                                 Text("Please enable Health access in Settings → Health → Data Access & Devices → Texercise")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
-                                
                                 Button {
                                     if let url = URL(string: "x-apple-health://") {
                                         UIApplication.shared.open(url)
@@ -133,7 +138,6 @@ struct EarnView: View {
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
-                                
                                 Button {
                                     healthStore.requestAuthorization()
                                 } label: {
@@ -158,29 +162,38 @@ struct EarnView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
+                    Button { showingSettings = true } label: {
                         Image(systemName: "gearshape.fill")
                     }
                 }
             }
-            .sheet(isPresented: $showingScreenTimeLog) {
-                ScreenTimeLogView()
-            }
-            .sheet(isPresented: $showingScreenTimeGuide) {
-                ScreenTimeGuideView()
-            }
-            .sheet(isPresented: $showingExerciseOptions) {
-                ExerciseOptionsView()
-            }
+            .sheet(isPresented: $showingScreenTimeLog) { ScreenTimeLogView() }
+            .sheet(isPresented: $showingScreenTimeGuide) { ScreenTimeGuideView() }
+            .sheet(isPresented: $showingExerciseOptions) { ExerciseOptionsView() }
             .sheet(isPresented: $showingWorkoutLog) {
-                AddWorkoutView()
-                    .environmentObject(healthStore)
+                AddWorkoutView().environmentObject(healthStore)
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView()
-                    .environmentObject(pointSettings)
+                SettingsView().environmentObject(pointSettings)
+            }
+            .fullScreenCover(item: $quickActionExercise) { exercise in
+                ManualExerciseEntryView(exerciseType: exercise.name)
+                    .environmentObject(exerciseStore)
+            }
+            .onAppear {
+                print("🟢 EarnView onAppear")
+                if let exercise = QuickActionManager.shared.consumePendingExercise() {
+                    print("🟢 EarnView consuming pending: \(exercise)")
+                    quickActionExercise = IdentifiableExercise(name: exercise)
+                } else {
+                    print("🟡 EarnView: nothing pending")
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickActionTriggered)) { notification in
+                print("🟢 EarnView received quickActionTriggered: \(notification.object ?? "nil")")
+                if let exercise = notification.object as? String {
+                    quickActionExercise = IdentifiableExercise(name: exercise)
+                }
             }
         }
     }

@@ -23,25 +23,34 @@ struct Points {
         screenMinutes: Int,
         settings: PointSettings = .default
     ) -> Int {
-        let stepsPoints = steps / settings.stepsPerPoint
-        let workoutPoints = workouts.reduce(0) { $0 + $1.durationMinutes } / settings.workoutMinutesPerPoint
+        let stepsPoints = settings.stepsPerPoint > 0 ? steps / settings.stepsPerPoint : 0
+        let workoutPoints = settings.workoutMinutesPerPoint > 0
+            ? workouts.reduce(0) { $0 + $1.durationMinutes } / settings.workoutMinutesPerPoint
+            : 0
         
-        // Calculate exercise points - 1 rep = 1 point for all except plank
         var exercisePoints = 0
         for exercise in exercises {
             let type = exercise.type?.lowercased() ?? ""
             let count = Int(exercise.count)
             
             if type.contains("plank") {
-                // Plank: use threshold (default 6 seconds = 1 point)
-                exercisePoints += count / settings.plankSecondsPerPoint
+                exercisePoints += settings.plankSecondsPerPoint > 0 ? count / settings.plankSecondsPerPoint : 0
+            } else if type.contains("push") {
+                exercisePoints += settings.pushupsPerPoint > 0 ? count / settings.pushupsPerPoint : 0
+            } else if type.contains("squat") {
+                exercisePoints += settings.squatsPerPoint > 0 ? count / settings.squatsPerPoint : 0
+            } else if type.contains("sit") {
+                exercisePoints += settings.situpsPerPoint > 0 ? count / settings.situpsPerPoint : 0
+            } else if type.contains("lunge") {
+                exercisePoints += settings.lungeRepsPerPoint > 0 ? count / settings.lungeRepsPerPoint : 0
             } else {
-                // All other exercises: 1 rep = 1 point (no threshold)
                 exercisePoints += count
             }
         }
         
-        let screenPenalty = screenMinutes / settings.screenTimeMinutesPerPenalty
+        let screenPenalty = settings.screenTimeMinutesPerPenalty > 0
+            ? screenMinutes / settings.screenTimeMinutesPerPenalty
+            : 0
         
         return stepsPoints + workoutPoints + exercisePoints - screenPenalty
     }

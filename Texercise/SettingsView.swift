@@ -31,43 +31,22 @@ struct SettingsView: View {
                             .frame(width: 80)
                     }
                 }
-                
+                Section("Debug") {
+                    Button("Copy Debug Log") {
+                        let log = UserDefaults(suiteName: "group.com.samring.texercise")?.string(forKey: "sharedDebugLog") ?? "empty"
+                        UIPasteboard.general.string = log
+                    }
+                    Button("Clear Debug Log") {
+                        UserDefaults(suiteName: "group.com.samring.texercise")?.removeObject(forKey: "sharedDebugLog")
+                    }
+                    .foregroundColor(.red)
+                }
                 Section("Exercise Points") {
-                    HStack {
-                        Text("Pushups/Squats/Sit-ups")
-                        Spacer()
-                        TextField("Reps", value: $pointSettings.settings.repsPerPoint, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                        Text("reps = 1 pt")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
-                    
-                    HStack {
-                        Text("Lunges")
-                        Spacer()
-                        TextField("Reps", value: $pointSettings.settings.lungeRepsPerPoint, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                        Text("reps = 1 pt")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
-                    
-                    HStack {
-                        Text("Plank")
-                        Spacer()
-                        TextField("Seconds", value: $pointSettings.settings.plankSecondsPerPoint, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                        Text("sec = 1 pt")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
+                    ExercisePointRow(label: "Pushups", unit: "reps = 1 pt", value: $pointSettings.settings.pushupsPerPoint)
+                    ExercisePointRow(label: "Squats", unit: "reps = 1 pt", value: $pointSettings.settings.squatsPerPoint)
+                    ExercisePointRow(label: "Sit-ups", unit: "reps = 1 pt", value: $pointSettings.settings.situpsPerPoint)
+                    ExercisePointRow(label: "Lunges", unit: "reps = 1 pt", value: $pointSettings.settings.lungeRepsPerPoint)
+                    ExercisePointRow(label: "Plank", unit: "sec = 1 pt", value: $pointSettings.settings.plankSecondsPerPoint)
                 }
                 
                 Section("Screen Time") {
@@ -147,6 +126,27 @@ struct SettingsView: View {
             .sheet(isPresented: $showingScreenTimePicker) {
                 ScreenTimePickerView()
             }
+        }
+    }
+}
+
+// MARK: - Reusable exercise point row
+struct ExercisePointRow: View {
+    let label: String
+    let unit: String
+    @Binding var value: Int
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("", value: $value, format: .number)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            Text(unit)
+                .foregroundColor(.secondary)
+                .font(.caption)
         }
     }
 }

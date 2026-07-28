@@ -7,6 +7,9 @@ struct ExerciseOptionsView: View {
     @State private var selectedExerciseType: String?
     @State private var showingLiveCapture = false
     @State private var showingManualEntry = false
+    @State private var showingPlankTimer = false
+    
+    private var isPlank: Bool { selectedExerciseType == "Plank" }
     
     private let exerciseTypes = ["Pushups", "Squats", "Sit-ups", "Lunges", "Plank"]
     
@@ -51,22 +54,41 @@ struct ExerciseOptionsView: View {
                 
                 // Action buttons
                 VStack(spacing: 12) {
-                    Button {
-                        showingLiveCapture = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "video.fill")
-                            Text("Live Capture")
+                    if isPlank {
+                        // Plank uses a stopwatch timer instead of live capture
+                        Button {
+                            showingPlankTimer = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "timer")
+                                Text("Start Plank Timer")
+                            }
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(selectedExerciseType != nil ? Color.accentColor : Color.gray)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
                         }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(selectedExerciseType != nil ? Color.accentColor : Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                        .disabled(selectedExerciseType == nil)
+                    } else {
+                        Button {
+                            showingLiveCapture = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "video.fill")
+                                Text("Live Capture")
+                            }
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(selectedExerciseType != nil ? Color.accentColor : Color.gray)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(selectedExerciseType == nil)
                     }
-                    .disabled(selectedExerciseType == nil)
-                    
+
                     Button {
                         showingManualEntry = true
                     } label: {
@@ -90,6 +112,14 @@ struct ExerciseOptionsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+            }
+            .fullScreenCover(isPresented: $showingPlankTimer) {
+                if let exerciseType = selectedExerciseType {
+                    PlankTimerView(initialSeconds: 0) { totalSeconds in
+                        exerciseStore.logExercise(type: exerciseType, count: totalSeconds, date: Date())
+                        dismiss()
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showingLiveCapture) {

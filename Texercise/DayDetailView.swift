@@ -7,6 +7,7 @@ struct DayDetailView: View {
     @EnvironmentObject var exerciseStore: ExerciseStore
     @EnvironmentObject var screenTimeStore: ScreenTimeStore
     @EnvironmentObject var pointSettings: PointSettingsStore
+    @EnvironmentObject var blockingEventStore: BlockingEventStore
     
     @State private var exerciseToEdit: ExerciseEntry?
 
@@ -35,23 +36,28 @@ struct DayDetailView: View {
     private func pointsForExercise(_ exercise: ExerciseEntry) -> Int {
         let type = exercise.type?.lowercased() ?? ""
         let count = Int(exercise.count)
-        
         if type.contains("plank") {
-            // Plank uses threshold
             return count / pointSettings.settings.plankSecondsPerPoint
         } else {
-            // All other exercises: 1 rep = 1 point (no threshold)
             return count
         }
     }
     
     private func displayUnit(_ exercise: ExerciseEntry) -> String {
         let type = exercise.type?.lowercased() ?? ""
-        if type.contains("plank") {
-            return "sec"
-        } else {
-            return "reps"
+        return type.contains("plank") ? "sec" : "reps"
+    }
+
+    /// Formats minutes into a human-readable duration string.
+    /// e.g. 5 → "5 min", 60 → "1h", 75 → "1h 15m"
+    private func formatDuration(_ minutes: Int32) -> String {
+        guard minutes > 0 else { return "0 min" }
+        if minutes < 60 {
+            return "\(minutes) min"
         }
+        let hrs = minutes / 60
+        let mins = minutes % 60
+        return mins == 0 ? "\(hrs)h" : "\(hrs)h \(mins)m"
     }
 
     var body: some View {
@@ -66,13 +72,11 @@ struct DayDetailView: View {
                         .font(.title2.monospacedDigit())
                         .foregroundColor(points.net >= 0 ? .green : .red)
                 }
-
                 HStack {
                     Text("Earned")
                     Spacer()
                     Text("+\(points.earned)")
                 }
-
                 HStack {
                     Text("Screen Time")
                     Spacer()
@@ -87,19 +91,16 @@ struct DayDetailView: View {
                     Spacer()
                     Text("+\(points.steps)")
                 }
-
                 HStack {
                     Label("Exercises", systemImage: "dumbbell")
                     Spacer()
                     Text("+\(points.exercise)")
                 }
-
                 HStack {
                     Label("Workouts", systemImage: "clock")
                     Spacer()
                     Text("+\(points.workout)")
                 }
-
                 HStack {
                     Label("Screen Time", systemImage: "iphone")
                     Spacer()
@@ -131,8 +132,7 @@ struct DayDetailView: View {
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
-                            let workout = workouts[index]
-                            healthStore.deleteWorkout(workout)
+                            healthStore.deleteWorkout(workouts[index])
                         }
                     }
                 }
@@ -166,8 +166,7 @@ struct DayDetailView: View {
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
-                            let exercise = exercises[index]
-                            exerciseStore.deleteExercise(exercise)
+                            exerciseStore.deleteExercise(exercises[index])
                         }
                     }
                 }
@@ -175,24 +174,53 @@ struct DayDetailView: View {
             
             // MARK: Screen Time
             if !screenTimeEntries.isEmpty {
-                Section("Screen Time") {
+                let totalMinutes = screenTimeEntries.reduce(0) { $0 + Int($1.minutes) }
+                Section(
+                    header: Text("Screen Time"),
+                    footer: Text("Total: \(formatDuration(Int32(totalMinutes))) · −\(totalMinutes / pointSettings.settings.screenTimeMinutesPerPenalty) pts")
+                        .font(.caption)
+                ) {
                     ForEach(screenTimeEntries) { entry in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(entry.category ?? "Screen Time")
                                     .font(.headline)
+                                if let timestamp = entry.timestamp ?? entry.date {
+                                    Text(timestamp, style: .time)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             Spacer()
-                            Text("\(entry.minutes) min")
+                            Text(formatDuration(entry.minutes))
                                 .foregroundColor(.secondary)
-                            Text("-\(Int(entry.minutes) / pointSettings.settings.screenTimeMinutesPerPenalty)")
+                            Text("−\(Int(entry.minutes) / pointSettings.settings.screenTimeMinutesPerPenalty)")
                                 .foregroundColor(.red)
                         }
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
-                            let entry = screenTimeEntries[index]
-                            screenTimeStore.deleteEntry(entry)
+                            screenTimeStore.deleteEntry(screenTimeEntries[index])
+                        }
+                    }
+                }
+            }
+            
+            // MARK: Blocking Events
+            let blockingEvents = blockingEventStore.events(on: date)
+            if !blockingEvents.isEmpty {
+                Section("App Blocking (\(blockingEvents.count) times)") {
+                    ForEach(blockingEvents, id: \.self) { event in
+                        HStack {
+                            Image(systemName: "lock.fill")
+                                .foregroundColor(.red)
+                                .frame(width: 24)
+                            Text("Blocked at")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text(event, style: .time)
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundColor(.red)
                         }
                     }
                 }

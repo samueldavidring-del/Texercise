@@ -7,40 +7,29 @@ struct PoseCameraRepCounterView: UIViewControllerRepresentable {
     @Binding var isRunning: Bool
     @Binding var reps: Int
     @Binding var currentPose: VNHumanBodyPoseObservation?
+    var onPlankFeedbackUpdate: ((PlankFormFeedback) -> Void)? = nil
 
     func makeUIViewController(context: Context) -> PoseCameraRepCounterController {
         let vc = PoseCameraRepCounterController()
         vc.onRepCount = { count in
-            DispatchQueue.main.async {
-                self.reps = count
-            }
+            DispatchQueue.main.async { self.reps = count }
         }
         vc.onPoseUpdate = { observation in
-            DispatchQueue.main.async {
-                self.currentPose = observation
-            }
+            DispatchQueue.main.async { self.currentPose = observation }
+        }
+        vc.onPlankFeedback = { feedback in
+            DispatchQueue.main.async { self.onPlankFeedbackUpdate?(feedback) }
         }
         vc.exerciseType = exerciseType
-        
-        // Start the session on a background thread
-        DispatchQueue.global(qos: .userInitiated).async {
-            vc.session.startRunning()
-        }
-        
         return vc
     }
 
     func updateUIViewController(_ uiViewController: PoseCameraRepCounterController, context: Context) {
-        // Update exercise type if it changed
         if uiViewController.exerciseType != exerciseType {
-            print("🔄 Exercise type changed from \(uiViewController.exerciseType) to \(exerciseType)")
             uiViewController.exerciseType = exerciseType
             uiViewController.repCounter.reset()
         }
-        
-        // Update processing state
         uiViewController.shouldProcess = isRunning
-        print("🎬 Processing updated: \(isRunning)")
     }
 }
 
@@ -48,17 +37,17 @@ final class PoseCameraRepCounterController: UIViewController, AVCaptureVideoData
 
     var onRepCount: ((Int) -> Void)?
     var onPoseUpdate: ((VNHumanBodyPoseObservation?) -> Void)?
+    var onPlankFeedback: ((PlankFormFeedback) -> Void)?
     var exerciseType: String = "Pushups"
     var shouldProcess: Bool = false
 
     let session = AVCaptureSession()
     private let output = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "pose.camera.queue", qos: .userInitiated)
-
     private var previewLayer: AVCaptureVideoPreviewLayer?
     let repCounter = PoseRepCounter()
-
     private let request = VNDetectHumanBodyPoseRequest()
+    var cachedIsLandscape: Bool = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -69,6 +58,25 @@ final class PoseCameraRepCounterController: UIViewController, AVCaptureVideoData
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+        let isLandscape = view.bounds.width > view.bounds.height
+        if isLandscape != cachedIsLandscape {
+            cachedIsLandscape = isLandscape
+            updatePreviewRotation()
+        }
+    }
+
+    /// Only rotates the preview layer for display.
+    /// Output connection stays fixed at 90° so Vision always gets a
+    /// consistently portrait-oriented pixel buffer regardless of device orientation.
+    func updatePreviewRotation() {
+        previewLayer?.connection?.videoRotationAngle = cachedIsLandscape ? 180 : 90
+    }
+
+    func updateVideoRotation() { updatePreviewRotation() }
+
+    deinit {
+        session.stopRunning()
+        print("🛑 Camera session stopped")
     }
 
     private func configureSession() {
@@ -86,10 +94,7 @@ final class PoseCameraRepCounterController: UIViewController, AVCaptureVideoData
         }
 
         session.addInput(input)
-
-        output.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ]
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         output.setSampleBufferDelegate(self, queue: queue)
         output.alwaysDiscardsLateVideoFrames = true
 
@@ -100,6 +105,7 @@ final class PoseCameraRepCounterController: UIViewController, AVCaptureVideoData
         }
         session.addOutput(output)
 
+        // Fix output at 90° always — Vision receives portrait pixel buffer consistently
         if let conn = output.connection(with: .video) {
             conn.videoRotationAngle = 90
         }
@@ -112,32 +118,31 @@ final class PoseCameraRepCounterController: UIViewController, AVCaptureVideoData
 
         session.commitConfiguration()
         print("✅ Camera session configured")
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.session.startRunning()
+        }
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard shouldProcess else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
+        // Always .up — output connection is fixed at 90° so pixel buffer is always portrait
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
         do {
             try handler.perform([request])
             guard let obs = request.results?.first as? VNHumanBodyPoseObservation else { return }
-
-            // Publish observation for overlay
             onPoseUpdate?(obs)
-
             let count = repCounter.process(observation: obs, exerciseType: exerciseType)
-            if count != repCounter.lastPublished {
+            let isPlank = exerciseType.lowercased() == "plank"
+            if isPlank || count != repCounter.lastPublished {
                 repCounter.lastPublished = count
                 onRepCount?(count)
             }
+            onPlankFeedback?(repCounter.plankFeedback)
         } catch {
             // ignore frame errors
         }
-    }
-    
-    deinit {
-        session.stopRunning()
-        print("🛑 Camera session stopped")
     }
 }

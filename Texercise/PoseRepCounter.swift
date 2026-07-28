@@ -13,6 +13,14 @@ final class PoseRepCounter {
     private var plankTotalSeconds: Int = 0
     private var plankAccumulatedSeconds: Int = 0
     private var isInPlank = false
+    var plankFeedback: PlankFormFeedback = .notDetected
+    
+    // Plank requires N consecutive valid frames before starting,
+    // and N consecutive invalid frames before stopping
+    private var consecutiveValidFrames = 0
+    private var consecutiveInvalidFrames = 0
+    private let plankEntryFrames = 8   // ~0.5s at 15fps — must hold position before counting starts
+    private let plankExitFrames  = 30  // ~2s at 15fps — tolerates gaps between valid detections
     
     // Lunge tracking with better debounce
     private var lastLungeDetection = false
@@ -39,6 +47,8 @@ final class PoseRepCounter {
         lastLungeCountTime = nil
         lastCrunchCountTime = nil
         lastPushupCountTime = nil
+        consecutiveValidFrames = 0
+        consecutiveInvalidFrames = 0
     }
     
     func process(observation: VNHumanBodyPoseObservation, exerciseType: String) -> Int {
@@ -126,25 +136,36 @@ final class PoseRepCounter {
     }
     
     private func processPlank(observation: VNHumanBodyPoseObservation) -> Int {
-        let isInPlankPosition = PlankDetector.detectPlank(observation: observation) ?? false
+        let result = PlankDetector.detectPlankWithFeedback(observation: observation)
+        plankFeedback = result.feedback
+        let isValidFrame = result.isPlank ?? false
         
-        if isInPlankPosition {
-            if !isInPlank {
-                // Just entered plank position
+        if isValidFrame {
+            consecutiveValidFrames += 1
+            consecutiveInvalidFrames = 0
+        } else {
+            consecutiveInvalidFrames += 1
+            consecutiveValidFrames = 0
+        }
+        
+        if !isInPlank {
+            // Enter plank only after holding valid position for N frames
+            if consecutiveValidFrames >= plankEntryFrames {
                 plankStartTime = Date()
                 isInPlank = true
+                consecutiveValidFrames = 0
                 AudioServicesPlaySystemSound(1520)
                 print("🏋️ Plank started!")
             }
-            
-            // Calculate current hold time
+        } else {
+            // Update timer while in plank
             if let startTime = plankStartTime {
                 let elapsed = Date().timeIntervalSince(startTime)
                 plankTotalSeconds = plankAccumulatedSeconds + Int(elapsed)
             }
-        } else {
-            if isInPlank {
-                // Just exited plank position - accumulate the time
+            
+            // Exit plank only after N consecutive invalid frames
+            if consecutiveInvalidFrames >= plankExitFrames {
                 if let startTime = plankStartTime {
                     let elapsed = Date().timeIntervalSince(startTime)
                     plankAccumulatedSeconds += Int(elapsed)
@@ -152,6 +173,7 @@ final class PoseRepCounter {
                 }
                 isInPlank = false
                 plankStartTime = nil
+                consecutiveInvalidFrames = 0
                 AudioServicesPlaySystemSound(1521)
                 print("🏋️ Plank paused at \(plankTotalSeconds) seconds")
             }

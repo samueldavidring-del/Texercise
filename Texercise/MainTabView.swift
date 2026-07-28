@@ -9,13 +9,22 @@ struct MainTabView: View {
     @StateObject private var goalSettings = GoalSettingsStore()
     @StateObject private var achievementStore = AchievementStore()
     @StateObject private var blockingManager = AppBlockingManager.shared
-    
+    @StateObject private var blockingEventStore = BlockingEventStore()
+    @ObservedObject private var quickActionManager = QuickActionManager.shared
+
     @State private var showingSettings = false
     @State private var showingOnboarding = false
-    
+    @State private var selectedTab = 0
+    @State private var screenTimePollTimer: Timer? = nil
+
+    private let screenTimePollInterval: TimeInterval = 60
     private let hasOnboardedKey = "hasCompletedOnboarding"
-    
-    // Compute net points at the top level so we can watch for changes
+
+    // MARK: - Feature Flags
+    // Set back to `true` to restore the Achievements tab.
+    // AchievementsView, AchievementStore and all achievement logic remain intact.
+    private static let showAchievementsTab = false
+
     private var netPoints: Int {
         let workouts = healthStore.workouts(on: Date())
         let exercises = exerciseStore.exercises(for: Date())
@@ -28,28 +37,38 @@ struct MainTabView: View {
             settings: pointSettings.settings
         )
     }
-    
+
+    private var earnedPoints: Int {
+        let workouts = healthStore.workouts(on: Date())
+        let exercises = exerciseStore.exercises(for: Date())
+        return Points.today(
+            steps: healthStore.stepsToday,
+            workouts: workouts,
+            exercises: exercises,
+            screenMinutes: 0,
+            settings: pointSettings.settings
+        )
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             TodayView(showingSettings: $showingSettings)
-                .tabItem {
-                    Label("Today", systemImage: "star.fill")
-                }
-            
-            EarnView()
-                .tabItem {
-                    Label("Earn", systemImage: "plus.circle.fill")
-                }
-            
+                .tabItem { Label("Today", systemImage: "star.fill") }
+                .tag(0)
+
+            EarnView(selectedTab: $selectedTab)
+                .tabItem { Label("Earn", systemImage: "plus.circle.fill") }
+                .tag(1)
+
             HistoryView(showingSettings: $showingSettings)
-                .tabItem {
-                    Label("History", systemImage: "chart.bar.fill")
-                }
-            
-            AchievementsView()
-                .tabItem {
-                    Label("Achievements", systemImage: "trophy.fill")
-                }
+                .tabItem { Label("History", systemImage: "chart.bar.fill") }
+                .tag(2)
+
+            if Self.showAchievementsTab {
+                AchievementsView()
+                    .tabItem { Label("Achievements", systemImage: "trophy.fill") }
+                    .tag(3)
+            }
         }
         .environmentObject(healthStore)
         .environmentObject(exerciseStore)
@@ -57,6 +76,7 @@ struct MainTabView: View {
         .environmentObject(pointSettings)
         .environmentObject(goalSettings)
         .environmentObject(achievementStore)
+        .environmentObject(blockingEventStore)
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environmentObject(pointSettings)
@@ -67,7 +87,6 @@ struct MainTabView: View {
                 .environmentObject(healthStore)
                 .interactiveDismissDisabled(true)
         }
-        // Show blocking banner when apps are restricted
         .overlay(alignment: .top) {
             if blockingManager.isBlocking {
                 BlockingBannerView()
@@ -77,32 +96,97 @@ struct MainTabView: View {
         .animation(.easeInOut, value: blockingManager.isBlocking)
         .onAppear {
             print("🚀 MainTabView appeared - fetching data")
+            NotificationScheduler.cancelScreenTimeWarning()
             exerciseStore.fetchEntries()
             screenTimeStore.fetchEntries()
-            
+
             if !UserDefaults.standard.bool(forKey: hasOnboardedKey) {
                 showingOnboarding = true
             }
-            
-            // Initial blocking check
+
+            // Wire the store into the singleton consumer once it's available.
+            ScreenTimeConsumer.shared.screenTimeStore = screenTimeStore
+
+            ScreenTimeConsumer.shared.consume()
             AppBlockingManager.shared.update(
                 netPoints: netPoints,
+                earnedPoints: earnedPoints,
                 screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty
             )
+            startScreenTimePollTimer()
         }
-        // Re-evaluate blocking whenever any relevant data changes
-        .onChange(of: healthStore.stepsToday) { _ in
-            AppBlockingManager.shared.update(netPoints: netPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            print("🔵 App entering foreground - checking pending screen time")
+            stopScreenTimePollTimer()
+            NotificationScheduler.cancelScreenTimeWarning()
+            ScreenTimeConsumer.shared.consume()
+            blockingEventStore.refresh()
+            AppBlockingManager.shared.syncFromExtension()
+            AppBlockingManager.shared.update(
+                netPoints: netPoints,
+                earnedPoints: earnedPoints,
+                screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty
+            )
+            updateGoalNotification()
+            startScreenTimePollTimer()
         }
-        .onChange(of: healthStore.recentWorkouts.count) { _ in
-            AppBlockingManager.shared.update(netPoints: netPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            stopScreenTimePollTimer()
         }
-        .onChange(of: exerciseStore.exercises(for: Date()).count) { _ in
-            AppBlockingManager.shared.update(netPoints: netPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        .onReceive(NotificationCenter.default.publisher(for: .quickActionTriggered)) { _ in
+            print("🚀 MainTabView: switching to Earn tab")
+            selectedTab = 1
         }
-        .onChange(of: screenTimeStore.totalMinutes(on: Date())) { _ in
-            AppBlockingManager.shared.update(netPoints: netPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        .onChange(of: healthStore.stepsToday) {
+            AppBlockingManager.shared.update(netPoints: netPoints, earnedPoints: earnedPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
         }
+        .onChange(of: healthStore.recentWorkouts.count) {
+            AppBlockingManager.shared.update(netPoints: netPoints, earnedPoints: earnedPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        }
+        .onChange(of: exerciseStore.exercises(for: Date()).count) {
+            AppBlockingManager.shared.update(netPoints: netPoints, earnedPoints: earnedPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        }
+        .onChange(of: screenTimeStore.totalMinutes(on: Date())) {
+            AppBlockingManager.shared.update(netPoints: netPoints, earnedPoints: earnedPoints, screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty)
+        }
+    }
+
+    // MARK: - Poll Timer
+
+    private func startScreenTimePollTimer() {
+        stopScreenTimePollTimer()
+        let timer = Timer.scheduledTimer(withTimeInterval: screenTimePollInterval, repeats: true) { _ in
+            ScreenTimeConsumer.shared.consume()
+            if screenTimeStore.totalMinutes(on: Date()) > 0 {
+                AppBlockingManager.shared.update(
+                    netPoints: netPoints,
+                    earnedPoints: earnedPoints,
+                    screenTimeMinutesPerPenalty: pointSettings.settings.screenTimeMinutesPerPenalty
+                )
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        screenTimePollTimer = timer
+        print("⏱ Screen time poll timer started (every \(Int(screenTimePollInterval))s)")
+    }
+
+    private func stopScreenTimePollTimer() {
+        screenTimePollTimer?.invalidate()
+        screenTimePollTimer = nil
+    }
+
+    // MARK: - Goal Notification
+
+    private func updateGoalNotification() {
+        let workoutMinutes = healthStore.workouts(on: Date()).reduce(0) { $0 + $1.durationMinutes }
+        let exerciseReps = exerciseStore.exercises(for: Date()).reduce(0) { $0 + Int($1.count) }
+        NotificationScheduler.updateGoalReminder(
+            goals: goalSettings.goals,
+            stepsToday: healthStore.stepsToday,
+            pointsToday: netPoints,
+            workoutMinutesToday: workoutMinutes,
+            exerciseRepsToday: exerciseReps
+        )
     }
 }
 

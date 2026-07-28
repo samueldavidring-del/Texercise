@@ -1,17 +1,17 @@
 import Foundation
 
 struct GoalSettings: Codable, Equatable {
-    var stepsGoalEnabled: Bool = false
-    var pointsGoalEnabled: Bool = false
-    var workoutGoalEnabled: Bool = false
-    var exerciseGoalEnabled: Bool = false
+    // All goals enabled by default so new users see goal progress immediately
+    var stepsGoalEnabled: Bool = true
+    var pointsGoalEnabled: Bool = true
+    var workoutGoalEnabled: Bool = false   // workout goal off by default — not everyone tracks workouts
+    var exerciseGoalEnabled: Bool = true
     
     var dailyStepsGoal: Int = 10000
     var dailyPointsGoal: Int = 100
     var dailyWorkoutMinutesGoal: Int = 30
-    var dailyExerciseRepsGoal: Int = 50
+    var dailyExerciseRepsGoal: Int = 100
     
-    // Computed property for checking if any goal is enabled
     var anyGoalEnabled: Bool {
         stepsGoalEnabled || pointsGoalEnabled || workoutGoalEnabled || exerciseGoalEnabled
     }
@@ -23,9 +23,7 @@ struct GoalSettings: Codable, Equatable {
 
 class GoalSettingsStore: ObservableObject {
     @Published var goals: GoalSettings {
-        didSet {
-            saveGoals()
-        }
+        didSet { saveGoals() }
     }
     
     private let goalsKey = "goalSettings"
@@ -35,6 +33,7 @@ class GoalSettingsStore: ObservableObject {
            let decoded = try? JSONDecoder().decode(GoalSettings.self, from: data) {
             self.goals = decoded
         } else {
+            // First launch — use defaults (goals enabled)
             self.goals = .default
         }
     }

@@ -31,14 +31,39 @@ struct PointSettingsView: View {
                 Section("Exercises") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text("Pushups/Squats/Sit-ups")
+                            Text("Pushups")
                             Spacer()
-                            Stepper("\(pointSettings.settings.repsPerPoint)",
-                                   value: $pointSettings.settings.repsPerPoint,
+                            Stepper("\(pointSettings.settings.pushupsPerPoint)",
+                                   value: $pointSettings.settings.pushupsPerPoint,
                                    in: 1...50)
                         }
+                        Text("Every \(pointSettings.settings.pushupsPerPoint) rep\(pointSettings.settings.pushupsPerPoint == 1 ? "" : "s") = 1 point")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                         
-                        Text("Every \(pointSettings.settings.repsPerPoint) rep\(pointSettings.settings.repsPerPoint == 1 ? "" : "s") = 1 point")
+                        Divider()
+                        
+                        HStack {
+                            Text("Squats")
+                            Spacer()
+                            Stepper("\(pointSettings.settings.squatsPerPoint)",
+                                   value: $pointSettings.settings.squatsPerPoint,
+                                   in: 1...50)
+                        }
+                        Text("Every \(pointSettings.settings.squatsPerPoint) rep\(pointSettings.settings.squatsPerPoint == 1 ? "" : "s") = 1 point")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Divider()
+                        
+                        HStack {
+                            Text("Sit-ups")
+                            Spacer()
+                            Stepper("\(pointSettings.settings.situpsPerPoint)",
+                                   value: $pointSettings.settings.situpsPerPoint,
+                                   in: 1...50)
+                        }
+                        Text("Every \(pointSettings.settings.situpsPerPoint) rep\(pointSettings.settings.situpsPerPoint == 1 ? "" : "s") = 1 point")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
@@ -51,7 +76,6 @@ struct PointSettingsView: View {
                                    value: $pointSettings.settings.lungeRepsPerPoint,
                                    in: 1...50)
                         }
-                        
                         Text("Every \(pointSettings.settings.lungeRepsPerPoint) rep\(pointSettings.settings.lungeRepsPerPoint == 1 ? "" : "s") = 1 point")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -65,7 +89,6 @@ struct PointSettingsView: View {
                                    value: $pointSettings.settings.plankSecondsPerPoint,
                                    in: 1...60)
                         }
-                        
                         Text("Every \(pointSettings.settings.plankSecondsPerPoint) second\(pointSettings.settings.plankSecondsPerPoint == 1 ? "" : "s") = 1 point")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -117,8 +140,10 @@ struct PointSettingsView: View {
                         Text("Default Values:")
                             .font(.headline)
                         Text("• 100 steps = 1 point")
-                        Text("• 10 reps = 1 point (pushups/squats/sit-ups)")
-                        Text("• 10 reps = 1 point (lunges)")
+                        Text("• 1 rep = 1 point (pushups)")
+                        Text("• 1 rep = 1 point (squats)")
+                        Text("• 1 rep = 1 point (sit-ups)")
+                        Text("• 1 rep = 1 point (lunges)")
                         Text("• 6 seconds = 1 point (plank)")
                         Text("• 1 workout minute = 1 point")
                         Text("• 15 screen time minutes = -1 point")

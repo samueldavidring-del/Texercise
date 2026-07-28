@@ -10,8 +10,8 @@ struct WorkoutSummary: Identifiable {
     let durationSeconds: Double
     let distanceMiles: Double?
     let caloriesBurned: Double?
-    let averageHeartRate: Double?
-    let maxHeartRate: Double?
+    var averageHeartRate: Double?  // var — loaded lazily in WorkoutDetailView
+    var maxHeartRate: Double?      // var — loaded lazily in WorkoutDetailView
     let elevationGain: Double?
     
     // Convenience: whole minutes for display
@@ -31,7 +31,7 @@ struct WorkoutSummary: Identifiable {
         self.activityName = Self.activityName(for: workout.workoutActivityType)
         self.startDate = workout.startDate
         self.endDate = workout.endDate
-        self.durationSeconds = workout.duration  // Full precision
+        self.durationSeconds = workout.duration
         self.distanceMiles = workout.totalDistance?.doubleValue(for: .mile())
         self.caloriesBurned = workout.totalEnergyBurned?.doubleValue(for: .kilocalorie())
         self.averageHeartRate = averageHeartRate
@@ -64,17 +64,17 @@ struct WorkoutSummary: Identifiable {
     
     private static func activityName(for type: HKWorkoutActivityType) -> String {
         switch type {
-        case .running: return "Running"
-        case .cycling: return "Cycling"
-        case .swimming: return "Swimming"
-        case .walking: return "Walking"
-        case .hiking: return "Hiking"
-        case .elliptical: return "Elliptical"
+        case .running:                     return "Running"
+        case .cycling:                     return "Cycling"
+        case .swimming:                    return "Swimming"
+        case .walking:                     return "Walking"
+        case .hiking:                      return "Hiking"
+        case .elliptical:                  return "Elliptical"
         case .traditionalStrengthTraining: return "Strength Training"
-        case .functionalStrengthTraining: return "Strength Training"
-        case .yoga: return "Yoga"
-        case .rowing: return "Rowing"
-        default: return "Workout"
+        case .functionalStrengthTraining:  return "Strength Training"
+        case .yoga:                        return "Yoga"
+        case .rowing:                      return "Rowing"
+        default:                           return "Workout"
         }
     }
 }

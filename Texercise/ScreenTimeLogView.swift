@@ -2,67 +2,44 @@ import SwiftUI
 
 struct ScreenTimeLogView: View {
     @EnvironmentObject var screenTimeStore: ScreenTimeStore
-    @Environment(\.dismiss) var dismiss
-    
-    @State private var minutes: Int = 0
-    @State private var selectedDate = Date()
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var minutes: Int = 30
     @State private var category: String = "Social Media"
-    
-    let categories = [
+
+    private let categories = [
         "Social Media",
         "Entertainment",
         "Gaming",
         "Productivity",
         "Other"
     ]
-    
+
     var body: some View {
         NavigationView {
             Form {
-                Section("Date") {
-                    DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
-                }
-                
-                Section("Category") {
+                Section("Screen Time") {
                     Picker("Category", selection: $category) {
                         ForEach(categories, id: \.self) { cat in
-                            Text(cat).tag(cat)
+                            Text(cat)
                         }
                     }
-                    .pickerStyle(.menu)
+
+                    Stepper("Minutes: \(minutes)", value: $minutes, in: 1...300, step: 5)
                 }
-                
-                Section("Duration") {
-                    HStack {
-                        Text("Minutes")
-                        Spacer()
-                        TextField("Minutes", value: $minutes, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                }
-                
+
                 Section {
-                    Button("Save") {
-                        screenTimeStore.addEntry(
-                            date: selectedDate,
-                            minutes: minutes,
-                            category: category
-                        )
+                    Button("Log Screen Time") {
+                        screenTimeStore.addManualEntry(minutes: minutes, categoryLabel: category)
                         dismiss()
                     }
-                    .frame(maxWidth: .infinity)
-                    .disabled(minutes <= 0)
+                    .disabled(minutes == 0)
                 }
             }
             .navigationTitle("Log Screen Time")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
                 }
             }
         }

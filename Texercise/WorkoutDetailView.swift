@@ -7,13 +7,19 @@ struct WorkoutDetailView: View {
     @EnvironmentObject var healthStore: HealthStore
     @State private var useKilometers = false
     @State private var showingEditSheet = false
+    @State private var loadedAvgHR: Double? = nil
+    @State private var loadedMaxHR: Double? = nil
+    @State private var isLoadingHR = false
+    
+    // Use lazily loaded HR if available, fall back to what was passed in
+    private var avgHR: Double? { loadedAvgHR ?? workout.averageHeartRate }
+    private var maxHR: Double? { loadedMaxHR ?? workout.maxHeartRate }
     
     private var distanceInKm: Double? {
         guard let miles = workout.distanceMiles else { return nil }
         return miles * 1.60934
     }
     
-    // Pace uses full durationSeconds for accuracy
     private var paceMinPerMile: String? {
         guard let distance = workout.distanceMiles, distance > 0, workout.durationSeconds > 0 else { return nil }
         let paceSecondsPerMile = workout.durationSeconds / distance
@@ -63,7 +69,7 @@ struct WorkoutDetailView: View {
     private var hasMultipleMetrics: Bool {
         var count = 0
         if workout.distanceMiles != nil { count += 1 }
-        if workout.averageHeartRate != nil { count += 1 }
+        if avgHR != nil { count += 1 }
         if workout.caloriesBurned != nil { count += 1 }
         return count >= 2
     }
@@ -152,26 +158,34 @@ struct WorkoutDetailView: View {
             }
             
             // Heart Rate
-            if workout.averageHeartRate != nil || workout.maxHeartRate != nil {
+            if isLoadingHR {
                 Section("Heart Rate") {
-                    if let avgHR = workout.averageHeartRate {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 4)
+                        Text("Loading heart rate...")
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } else if avgHR != nil || maxHR != nil {
+                Section("Heart Rate") {
+                    if let avg = avgHR {
                         HStack {
                             Image(systemName: "heart.fill")
                                 .foregroundColor(.red)
                             Text("Average")
                             Spacer()
-                            Text(String(format: "%.0f bpm", avgHR))
+                            Text(String(format: "%.0f bpm", avg))
                                 .bold()
                         }
                     }
-                    
-                    if let maxHR = workout.maxHeartRate {
+                    if let max = maxHR {
                         HStack {
                             Image(systemName: "bolt.heart.fill")
                                 .foregroundColor(.pink)
                             Text("Maximum")
                             Spacer()
-                            Text(String(format: "%.0f bpm", maxHR))
+                            Text(String(format: "%.0f bpm", max))
                                 .bold()
                         }
                     }
@@ -250,8 +264,8 @@ struct WorkoutDetailView: View {
                         if let pace = displayedPace {
                             StatRow(icon: "speedometer", color: .purple, label: "Avg Pace", value: pace)
                         }
-                        if let avgHR = workout.averageHeartRate {
-                            StatRow(icon: "heart.fill", color: .red, label: "Avg HR", value: String(format: "%.0f bpm", avgHR))
+                        if let avg = avgHR {
+                            StatRow(icon: "heart.fill", color: .red, label: "Avg HR", value: String(format: "%.0f bpm", avg))
                         }
                         if let calories = workout.caloriesBurned {
                             StatRow(icon: "flame.fill", color: .orange, label: "Calories", value: String(format: "%.0f", calories))
@@ -267,25 +281,52 @@ struct WorkoutDetailView: View {
                 Button("Edit") { showingEditSheet = true }
             }
         }
+        .onAppear {
+            // Only fetch HR if not already loaded (e.g. came from TodayView which pre-loads it)
+            if workout.averageHeartRate == nil && workout.maxHeartRate == nil && !isLoadingHR {
+                loadHeartRate()
+            }
+        }
         .sheet(isPresented: $showingEditSheet) {
             EditWorkoutView(workout: workout)
                 .environmentObject(healthStore)
         }
     }
     
+    private func loadHeartRate() {
+        guard let heartRateType = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return }
+        isLoadingHR = true
+        
+        let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate, options: .strictStartDate)
+        let query = HKStatisticsQuery(quantityType: heartRateType, quantitySamplePredicate: predicate, options: [.discreteAverage, .discreteMax]) { _, result, error in
+            DispatchQueue.main.async {
+                isLoadingHR = false
+                if let error = error {
+                    print("❌ Lazy HR fetch failed: \(error.localizedDescription)")
+                    return
+                }
+                let unit = HKUnit(from: "count/min")
+                loadedAvgHR = result?.averageQuantity()?.doubleValue(for: unit)
+                loadedMaxHR = result?.maximumQuantity()?.doubleValue(for: unit)
+                print("✅ Lazy HR loaded: avg=\(loadedAvgHR.map { "\($0)" } ?? "nil") max=\(loadedMaxHR.map { "\($0)" } ?? "nil")")
+            }
+        }
+        healthStore.store.execute(query)
+    }
+    
     private func iconForWorkoutType(_ type: UInt) -> String {
         switch type {
-        case HKWorkoutActivityType.running.rawValue: return "figure.run"
-        case HKWorkoutActivityType.cycling.rawValue: return "bicycle"
-        case HKWorkoutActivityType.swimming.rawValue: return "figure.pool.swim"
-        case HKWorkoutActivityType.walking.rawValue: return "figure.walk"
-        case HKWorkoutActivityType.hiking.rawValue: return "figure.hiking"
-        case HKWorkoutActivityType.yoga.rawValue: return "figure.yoga"
-        case HKWorkoutActivityType.functionalStrengthTraining.rawValue: return "dumbbell.fill"
+        case HKWorkoutActivityType.running.rawValue:                     return "figure.run"
+        case HKWorkoutActivityType.cycling.rawValue:                     return "bicycle"
+        case HKWorkoutActivityType.swimming.rawValue:                    return "figure.pool.swim"
+        case HKWorkoutActivityType.walking.rawValue:                     return "figure.walk"
+        case HKWorkoutActivityType.hiking.rawValue:                      return "figure.hiking"
+        case HKWorkoutActivityType.yoga.rawValue:                        return "figure.yoga"
+        case HKWorkoutActivityType.functionalStrengthTraining.rawValue:  return "dumbbell.fill"
         case HKWorkoutActivityType.traditionalStrengthTraining.rawValue: return "dumbbell.fill"
-        case HKWorkoutActivityType.elliptical.rawValue: return "figure.elliptical"
-        case HKWorkoutActivityType.rowing.rawValue: return "figure.rowing"
-        default: return "figure.mixed.cardio"
+        case HKWorkoutActivityType.elliptical.rawValue:                  return "figure.elliptical"
+        case HKWorkoutActivityType.rowing.rawValue:                      return "figure.rowing"
+        default:                                                          return "figure.mixed.cardio"
         }
     }
 }
@@ -319,7 +360,7 @@ struct StatRow: View {
                 activityName: "Running",
                 startDate: Date().addingTimeInterval(-3600),
                 endDate: Date(),
-                durationSeconds: 3765,  // 62:45
+                durationSeconds: 3765,
                 distanceMiles: 6.2,
                 caloriesBurned: 450,
                 averageHeartRate: 145,

@@ -7,11 +7,11 @@ struct PositionGuideView: View {
     private var guideText: String {
         switch exerciseType.lowercased() {
         case "plank":
-            return "Position phone to the SIDE\n\nMake sure your:\n• Shoulders\n• Elbows\n• Hips\n\nare ALL visible\n\n(Feet can be out of frame)"
+            return "Position phone to the SIDE\n\nMake sure your:\n• Shoulders\n• Hips\n• Ankles\n\nare ALL visible\n\nKeep your body flat and horizontal"
         case "lunges":
             return "Face SIDEWAYS to the camera\n\nMake sure your:\n• Hips\n• Both knees\n\nare visible\n\nStep forward slowly\nAlternate legs"
         case "pushups", "push-ups":
-            return "Position phone to the SIDE\n\nKeep your full body visible\nGo all the way down\nFully extend arms up"
+            return "Prop phone against a wall\nFACING you directly\n\nGet into pushup position:\n• Arms shoulder-width apart\n• Body flat and low\n• Face the camera\n\nGo all the way down\nFully extend arms up"
         case "squats":
             return "Face the camera directly\n\nKeep your full body visible\nGo below parallel\nFully stand up"
         case "sit-ups", "situps":

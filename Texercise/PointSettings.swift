@@ -3,10 +3,12 @@ import Foundation
 struct PointSettings: Codable, Equatable {
     var stepsPerPoint: Int = 100
     var workoutMinutesPerPoint: Int = 1
-    var repsPerPoint: Int = 10  // Default for pushups, squats, sit-ups
-    var screenTimeMinutesPerPenalty: Int = 15
+    var pushupsPerPoint: Int = 1
+    var squatsPerPoint: Int = 1
+    var situpsPerPoint: Int = 1
+    var screenTimeMinutesPerPenalty: Int = 1
     var plankSecondsPerPoint: Int = 6
-    var lungeRepsPerPoint: Int = 10
+    var lungeRepsPerPoint: Int = 1
     
     static var `default`: PointSettings {
         PointSettings()
