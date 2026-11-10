@@ -32,6 +32,7 @@
 		B71F2C212F74757D009DBAB5 /* SplashScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71F2C202F74757D009DBAB5 /* SplashScreenView.swift */; };
 		B71F2C222F74757D009DBAB5 /* SplashScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71F2C202F74757D009DBAB5 /* SplashScreenView.swift */; };
 		B71F2C242F757AB0009DBAB5 /* ScreentimeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71F2C232F757AB0009DBAB5 /* ScreentimeDetailView.swift */; };
+		B739344630A3AD2000D1F582 /* MaxDailyLimitSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B739344530A3AD2000D1F582 /* MaxDailyLimitSection.swift */; };
 		B740DBAF2ED607D00036C9D6 /* TexerciseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B740DBAE2ED607D00036C9D6 /* TexerciseApp.swift */; };
 		B740DBB32ED607D30036C9D6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B740DBB22ED607D30036C9D6 /* Assets.xcassets */; };
 		B740DBB62ED607D30036C9D6 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B740DBB52ED607D30036C9D6 /* Preview Assets.xcassets */; };
@@ -188,6 +189,7 @@
 		B71F2C182F74187A009DBAB5 /* TexerciseShieldAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TexerciseShieldAction.entitlements; sourceTree = "<group>"; };
 		B71F2C202F74757D009DBAB5 /* SplashScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreenView.swift; sourceTree = "<group>"; };
 		B71F2C232F757AB0009DBAB5 /* ScreentimeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreentimeDetailView.swift; sourceTree = "<group>"; };
+		B739344530A3AD2000D1F582 /* MaxDailyLimitSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxDailyLimitSection.swift; sourceTree = "<group>"; };
 		B740DBAB2ED607D00036C9D6 /* Texercise.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Texercise.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B740DBAE2ED607D00036C9D6 /* TexerciseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TexerciseApp.swift; sourceTree = "<group>"; };
 		B740DBB22ED607D30036C9D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -372,6 +374,7 @@
 		B740DBA22ED607D00036C9D6 = {
 			isa = PBXGroup;
 			children = (
+				B739344530A3AD2000D1F582 /* MaxDailyLimitSection.swift */,
 				B740DBE62ED619020036C9D6 /* TexerciseModel.xcdatamodeld */,
 				B740DBAD2ED607D00036C9D6 /* Texercise */,
 				B740DBBE2ED607D40036C9D6 /* TexerciseTests */,
@@ -418,7 +421,6 @@
 				B740DBE32ED616DB0036C9D6 /* ExerciseLogView.swift */,
 				B774E3172F0FCE7B0095EC19 /* ExerciseOptionsView.swift */,
 				B740DBDF2ED616990036C9D6 /* ExerciseStore.swift */,
-				B74DE7FA2F9BB502007D33CE /* PlantTimerView.swift */,
 				B7C838B42F3E5CA1006ACCE1 /* FamilyControlsManager.swift */,
 				B774E3272F1552C00095EC19 /* GoalSettings.swift */,
 				B774E32B2F1552F70095EC19 /* GoalSettingsView.swift */,
@@ -433,6 +435,7 @@
 				B70E9D7D2F3F8BFF0072D847 /* OnboardingView.swift */,
 				B7C838B02F23D46A006ACCE1 /* PersistenceController.swift */,
 				B774E32F2F1557C30095EC19 /* PlankDetector.swift */,
+				B74DE7FA2F9BB502007D33CE /* PlantTimerView.swift */,
 				B774E3112F0EE2700095EC19 /* Points.swift */,
 				B774E2FF2F0DAB7D0095EC19 /* PointsStore.swift */,
 				B774E3232F12D9610095EC19 /* PointSettings.swift */,
@@ -837,6 +840,7 @@
 				B774E3202F12D8B00095EC19 /* EditExerciseView.swift in Sources */,
 				B78DBD992FD0AF9200DD4CB2 /* ScreenTimeConsumer.swift in Sources */,
 				B778E5B72ED71F2B007CA4A9 /* HistoryView.swift in Sources */,
+				B739344630A3AD2000D1F582 /* MaxDailyLimitSection.swift in Sources */,
 				B774E3002F0DAB7D0095EC19 /* PointsStore.swift in Sources */,
 				B774E3062F0DB4A60095EC19 /* ThirdPartyAppsGuideView.swift in Sources */,
 				B70E9D7E2F3F8BFF0072D847 /* OnboardingView.swift in Sources */,
