@@ -70,7 +70,6 @@
 		B774E3202F12D8B00095EC19 /* EditExerciseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E31F2F12D8B00095EC19 /* EditExerciseView.swift */; };
 		B774E3222F12D8D60095EC19 /* EditWorkoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E3212F12D8D60095EC19 /* EditWorkoutView.swift */; };
 		B774E3242F12D9610095EC19 /* PointSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E3232F12D9610095EC19 /* PointSettings.swift */; };
-		B774E3262F12D9910095EC19 /* PointSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E3252F12D9910095EC19 /* PointSettingsView.swift */; };
 		B774E3282F1552C00095EC19 /* GoalSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E3272F1552C00095EC19 /* GoalSettings.swift */; };
 		B774E32A2F1552DB0095EC19 /* ProgressRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E3292F1552DB0095EC19 /* ProgressRingView.swift */; };
 		B774E32C2F1552F70095EC19 /* GoalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774E32B2F1552F70095EC19 /* GoalSettingsView.swift */; };
@@ -232,7 +231,6 @@
 		B774E31F2F12D8B00095EC19 /* EditExerciseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditExerciseView.swift; sourceTree = "<group>"; };
 		B774E3212F12D8D60095EC19 /* EditWorkoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditWorkoutView.swift; sourceTree = "<group>"; };
 		B774E3232F12D9610095EC19 /* PointSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointSettings.swift; sourceTree = "<group>"; };
-		B774E3252F12D9910095EC19 /* PointSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointSettingsView.swift; sourceTree = "<group>"; };
 		B774E3272F1552C00095EC19 /* GoalSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSettings.swift; sourceTree = "<group>"; };
 		B774E3292F1552DB0095EC19 /* ProgressRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRingView.swift; sourceTree = "<group>"; };
 		B774E32B2F1552F70095EC19 /* GoalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSettingsView.swift; sourceTree = "<group>"; };
@@ -439,7 +437,6 @@
 				B774E3112F0EE2700095EC19 /* Points.swift */,
 				B774E2FF2F0DAB7D0095EC19 /* PointsStore.swift */,
 				B774E3232F12D9610095EC19 /* PointSettings.swift */,
-				B774E3252F12D9910095EC19 /* PointSettingsView.swift */,
 				B774E2F92F0328FA0095EC19 /* PoseCameraRepCounterView.swift */,
 				B778E5B42ED635E1007CA4A9 /* PoseDemoView.swift */,
 				B774E3152F0F01B70095EC19 /* PoseOverlayView.swift */,
@@ -793,7 +790,6 @@
 				B774E30A2F0EBEB10095EC19 /* StravaConnectionView.swift in Sources */,
 				B71F2C242F757AB0009DBAB5 /* ScreentimeDetailView.swift in Sources */,
 				B774E2FA2F0328FA0095EC19 /* PoseCameraRepCounterView.swift in Sources */,
-				B774E3262F12D9910095EC19 /* PointSettingsView.swift in Sources */,
 				B7C838AD2F23CB4B006ACCE1 /* Achievement.swift in Sources */,
 				B774E3302F1557C30095EC19 /* PlankDetector.swift in Sources */,
 				B774E3242F12D9610095EC19 /* PointSettings.swift in Sources */,
