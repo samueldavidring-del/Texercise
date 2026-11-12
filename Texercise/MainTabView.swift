@@ -114,6 +114,10 @@ struct MainTabView: View {
             print("🔵 App entering foreground - checking pending screen time")
             stopScreenTimePollTimer()
             NotificationScheduler.cancelScreenTimeWarning()
+            // Re-checks Screen Time access and restarts monitoring only if iOS
+            // dropped the schedule (e.g. access was toggled in Settings).
+            FamilyControlsManager.shared.checkAuthorization()
+            ScreenTimeCategoryStore.shared.startMonitoringIfNeeded()
             ScreenTimeConsumer.shared.consume()
             blockingEventStore.refresh()
             AppBlockingManager.shared.syncFromExtension()

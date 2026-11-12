@@ -69,12 +69,26 @@ final class ScreenTimeMonitor {
                                         minutesPerPenalty: minutesPerPenalty,
                                         maxDailyMinutes: limit)
 
-        if lastStartDate == todayString && lastHash == currentHash {
+        // iOS deletes every DeviceActivity schedule when Screen Time access is
+        // revoked (including toggling it off and on in Settings). The session
+        // guard alone can't see that, so it would skip the restart and
+        // tracking would silently stay dead for the rest of the day.
+        let isRegistered = center.activities.contains(.daily)
+
+        if isRegistered && lastStartDate == todayString && lastHash == currentHash {
             print("✅ DeviceActivity monitoring already started today — skipping to preserve counters")
             return
         }
 
-        let reason = lastStartDate != todayString ? "new day" : "settings changed"
+        let reason: String
+        if !isRegistered {
+            reason = "schedule missing (access was reset)"
+        } else if lastStartDate != todayString {
+            reason = "new day"
+        } else {
+            reason = "settings changed"
+        }
+        appendDebugLog("MAIN_MONITOR start reason=\(reason)")
         print("⚡️ Starting DeviceActivity monitoring (\(reason)) hash=\(currentHash) storedHash=\(lastHash) date=\(lastStartDate)")
         startMonitoringInternal(selection: selection,
                                 minutesPerPenalty: minutesPerPenalty,
@@ -231,5 +245,21 @@ final class ScreenTimeMonitor {
         hash = hash * 31 + minutesPerPenalty
         hash = hash * 31 + maxDailyMinutes
         return hash
+    }
+
+    // MARK: - Debug Log
+
+    private func appendDebugLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        let line = "[\(formatter.string(from: Date()))] \(message)\n"
+        var log = defaults?.string(forKey: SharedKeys.debugLog) ?? ""
+        log += line
+        if log.count > 20_000 {
+            let trimmed = String(log.suffix(15_000))
+            log = String(trimmed.drop(while: { $0 != "\n" }).dropFirst())
+        }
+        defaults?.set(log, forKey: SharedKeys.debugLog)
     }
 }
