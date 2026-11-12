@@ -219,11 +219,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     private func applyBlocking() {
         guard let selection = StoredActivitySelection.load(from: defaults) else {
             print("⚠️ No activity selection found for blocking")
+            appendDebugLog("EXT_BLOCK FAILED — no stored activity selection in App Group")
             return
         }
         store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
         store.shield.applicationCategories = selection.categoryTokens.isEmpty ? nil : .specific(selection.categoryTokens)
+        let wasBlocking = defaults?.bool(forKey: SharedKeys.isBlocking) ?? false
         defaults?.set(true, forKey: SharedKeys.isBlocking)
+        if !wasBlocking {
+            let points = defaults?.integer(forKey: SharedKeys.netPoints) ?? 0
+            appendDebugLog("EXT_BLOCK applied apps=\(selection.applicationTokens.count) cats=\(selection.categoryTokens.count) points=\(points)")
+        }
         print("🔒 Apps blocked by extension")
     }
 

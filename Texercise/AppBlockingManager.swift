@@ -135,32 +135,53 @@ final class AppBlockingManager: ObservableObject {
     }
 
     private func applyRestrictions() {
-        guard FamilyControlsManager.shared.isAuthorized else {
-            print("⚠️ Cannot block - FamilyControls not authorized")
-            return
-        }
-        guard categoryStore.hasSelection else {
-            print("⚠️ Cannot block - no apps selected")
-            return
+        // No authorization guard here on purpose. The cached isAuthorized flag
+        // could read false at launch even when access was approved, and that
+        // guard silently skipped every block. The extension never had this
+        // check either. If access really is revoked, setting the shield is a
+        // harmless no-op.
+        if !FamilyControlsManager.shared.isAuthorized {
+            appendDebugLog("MAIN_BLOCK note: cached auth flag false (live=\(AuthorizationCenter.shared.authorizationStatus)) — applying anyway")
         }
 
-        let selection = categoryStore.activitySelection
+        // Prefer the in-memory selection; fall back to the copy saved in the
+        // App Group (the same one the extension blocks with).
+        var selection = categoryStore.activitySelection
+        if selection.applicationTokens.isEmpty && selection.categoryTokens.isEmpty,
+           let stored = StoredActivitySelection.load(from: defaults) {
+            selection = stored
+        }
+
         let appTokens = selection.applicationTokens
         let categoryTokens = selection.categoryTokens
+
+        guard !appTokens.isEmpty || !categoryTokens.isEmpty else {
+            print("⚠️ Cannot block - no apps selected")
+            appendDebugLog("MAIN_BLOCK skipped — no apps or categories selected")
+            return
+        }
 
         store.shield.applications = appTokens.isEmpty ? nil : appTokens
         store.shield.applicationCategories = categoryTokens.isEmpty ? nil : .specific(categoryTokens)
 
+        let wasBlocking = isBlocking
         isBlocking = true
         defaults?.set(true, forKey: SharedKeys.isBlocking)
+        if !wasBlocking {
+            appendDebugLog("MAIN_BLOCK applied apps=\(appTokens.count) cats=\(categoryTokens.count)")
+        }
         print("🔒 Apps blocked")
     }
 
     private func removeRestrictions() {
+        let wasBlocking = isBlocking || (defaults?.bool(forKey: SharedKeys.isBlocking) ?? false)
         store.shield.applications = nil
         store.shield.applicationCategories = nil
         isBlocking = false
         defaults?.set(false, forKey: SharedKeys.isBlocking)
+        if wasBlocking {
+            appendDebugLog("MAIN_UNBLOCK lastNetPoints=\(lastNetPoints ?? -999)")
+        }
         print("🔓 Apps unblocked")
     }
 
@@ -170,5 +191,21 @@ final class AppBlockingManager: ObservableObject {
         isHardBlocked = false
         NotificationScheduler.cancelScreenTimeWarning()
         NotificationScheduler.cancelBlockingWarning()
+    }
+
+    // MARK: - Debug Log
+
+    private func appendDebugLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        let line = "[\(formatter.string(from: Date()))] \(message)\n"
+        var log = defaults?.string(forKey: SharedKeys.debugLog) ?? ""
+        log += line
+        if log.count > 20_000 {
+            let trimmed = String(log.suffix(15_000))
+            log = String(trimmed.drop(while: { $0 != "\n" }).dropFirst())
+        }
+        defaults?.set(log, forKey: SharedKeys.debugLog)
     }
 }
