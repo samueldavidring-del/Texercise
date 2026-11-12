@@ -10,6 +10,12 @@ struct TodayView: View {
     @EnvironmentObject var blockingEventStore: BlockingEventStore
     
     @Binding var showingSettings: Bool
+
+    @ObservedObject private var blockingManager = AppBlockingManager.shared
+
+    /// Hides the banner for the current block only. Reset whenever a new
+    /// block starts, so a fresh lockout is always announced.
+    @State private var bannerDismissed = false
     
     @State private var showingExerciseOptions = false
     @State private var showingAddWorkout = false
@@ -113,6 +119,14 @@ struct TodayView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+
+                    // MARK: - Blocking Banner (inline, dismissible)
+                    if blockingManager.isBlocking && !bannerDismissed {
+                        BlockingBannerView(isHardBlocked: blockingManager.isHardBlocked) {
+                            withAnimation(.easeInOut) { bannerDismissed = true }
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     
                     // MARK: - Progress Rings with Net Points (Only if goals enabled)
                     if goalSettings.goals.anyGoalEnabled {
@@ -478,6 +492,11 @@ struct TodayView: View {
             .onChange(of: todayPoints) {
                 checkAndCancelNotification()
             }
+            .onChange(of: blockingManager.isBlocking) { _, isBlocking in
+                // A new block (or an unblock) re-arms the banner.
+                if isBlocking { bannerDismissed = false }
+            }
+            .animation(.easeInOut, value: blockingManager.isBlocking)
             .sheet(isPresented: $showingExerciseOptions) {
                 ExerciseOptionsView()
                     .environmentObject(exerciseStore)

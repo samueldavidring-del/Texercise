@@ -87,13 +87,8 @@ struct MainTabView: View {
                 .environmentObject(healthStore)
                 .interactiveDismissDisabled(true)
         }
-        .overlay(alignment: .top) {
-            if blockingManager.isBlocking {
-                BlockingBannerView()
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut, value: blockingManager.isBlocking)
+        // The blocking banner now lives inline at the top of TodayView, where
+        // it scrolls with the content instead of covering the Settings button.
         .onAppear {
             print("🚀 MainTabView appeared - fetching data")
             NotificationScheduler.cancelScreenTimeWarning()
