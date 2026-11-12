@@ -50,6 +50,23 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                   let ts = Double(tsStr) else { return false }
             return ts >= startOfToday
         }
+        // Each screenUsage_N event marks N cumulative minutes since midnight,
+        // so it can only legitimately fire once per day. Any repeat is a
+        // re-fire caused by startMonitoring resetting DeviceActivity's
+        // counters (e.g. after Screen Time access was reset). Counting those
+        // is what double-logged minutes, so drop them here — no log entry,
+        // no point deduction.
+        let alreadyFiredToday = eventLog.contains { $0.hasPrefix("\(event.rawValue)|") }
+        if alreadyFiredToday {
+            appendDebugLog("EXT_EVENT refire ignored event=\(event.rawValue)")
+            print("🔁 Re-fire of \(event.rawValue) ignored — already counted today")
+            // Keep an existing block in place; never lift one from here.
+            if defaults?.bool(forKey: SharedKeys.isBlocking) ?? false {
+                applyBlocking()
+            }
+            return
+        }
+
         let countBeforeAppend = eventLog.count
         let logEntry = "\(event.rawValue)|\(Int(nowTimestamp))"
         eventLog.append(logEntry)
@@ -207,9 +224,23 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        print("🌙 Monitoring interval ended")
-        appendDebugLog("EXT_INTERVAL_END")
         NotificationScheduler.cancelScreenTimeWarning()
+
+        // The schedule ends at 23:59. intervalDidEnd also fires mid-day
+        // whenever monitoring stops — Screen Time access toggled in Settings,
+        // or a stop/start restart — and lifting the shield then let people
+        // through while still out of points. Only release at the real end of
+        // day; intervalDidStart handles the new-day reset anyway.
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let isEndOfDay = (comps.hour ?? 0) == 23 && (comps.minute ?? 0) >= 58
+        guard isEndOfDay else {
+            print("🌙 Interval ended mid-day (monitoring stopped) — keeping current block state")
+            appendDebugLog("EXT_INTERVAL_END mid-day — block state kept")
+            return
+        }
+
+        print("🌙 Monitoring interval ended")
+        appendDebugLog("EXT_INTERVAL_END end of day")
         HardBlock.clear(in: defaults)
         removeBlocking()
     }

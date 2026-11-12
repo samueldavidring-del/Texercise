@@ -4,7 +4,7 @@ import Foundation
 /// against what has already been logged in Core Data today.
 ///
 /// Logic:
-///   totalFiredToday  = number of entries in screenTimeEventLog (each = 1 threshold minute)
+///   totalFiredToday  = number of distinct event names in screenTimeEventLog (each = 1 threshold)
 ///   totalLoggedToday = sum of all Auto-tracked screen time minutes in Core Data for today
 ///   delta            = max(0, totalFiredToday - totalLoggedToday)
 ///
@@ -44,8 +44,18 @@ final class ScreenTimeConsumer {
         let minutesPerPenalty = max(1, defaults?.integer(forKey: SharedKeys.minutesPerPenalty) ?? 1)
 
         // How many threshold events has DeviceActivity fired today?
+        // Count each event name once. A screenUsage_N name can only genuinely
+        // fire once per day; duplicates in the log are re-fires from a
+        // monitoring restart. This also corrects any duplicates that were
+        // logged before the extension started filtering them.
         let eventLog = (defaults?.array(forKey: SharedKeys.screenTimeEventLog) as? [String]) ?? []
-        let totalFiredToday = eventLog.count
+        let uniqueEventNames = Set(eventLog.compactMap { entry in
+            entry.split(separator: "|").first.map(String.init)
+        })
+        let totalFiredToday = uniqueEventNames.count
+        if uniqueEventNames.count != eventLog.count {
+            appendDebugLog("MAIN_CONSUME dedup raw=\(eventLog.count) unique=\(uniqueEventNames.count)")
+        }
 
         // How many minutes have already been logged in Core Data today?
         let totalLoggedToday = store.totalMinutes(on: Date())

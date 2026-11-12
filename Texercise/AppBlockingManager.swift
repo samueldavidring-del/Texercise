@@ -34,6 +34,16 @@ final class AppBlockingManager: ObservableObject {
         HardBlock.limit(in: defaults)
     }
 
+    /// Distinct threshold events the extension has recorded today. Each one
+    /// is one point deducted, and the App Group log is always readable
+    /// synchronously — unlike Core Data, which can briefly report fewer
+    /// minutes while it reloads.
+    private var firedPenaltyPointsToday: Int {
+        let log = (defaults?.array(forKey: SharedKeys.screenTimeEventLog) as? [String]) ?? []
+        let names = Set(log.compactMap { $0.split(separator: "|").first.map(String.init) })
+        return names.count
+    }
+
     /// - Parameter todayScreenTimeMinutes: minutes logged so far today, if the
     ///   caller has them. Used only as a backstop in case the extension's
     ///   threshold event was missed; safe to omit.
@@ -42,17 +52,24 @@ final class AppBlockingManager: ObservableObject {
                 screenTimeMinutesPerPenalty: Int = 1,
                 todayScreenTimeMinutes: Int? = nil) {
 
-        defer { lastNetPoints = netPoints }
+        // The debug log showed blocks being lifted moments after they were
+        // applied, by update calls that briefly computed points >= 0 from
+        // half-loaded data. Never trust a number more generous than what the
+        // extension has actually recorded.
+        let floorPoints = earnedPoints - firedPenaltyPointsToday
+        let effectivePoints = min(netPoints, floorPoints)
+
+        defer { lastNetPoints = effectivePoints }
 
         // A lockout from a previous day must never carry over.
         if HardBlock.clearIfStale(in: defaults) {
             print("🌅 Cleared stale daily-limit lockout from a previous day")
         }
 
-        ScreenTimeMonitor.shared.syncNetPoints(netPoints)
+        ScreenTimeMonitor.shared.syncNetPoints(effectivePoints)
         ScreenTimeMonitor.shared.syncEarnedPoints(earnedPoints)
 
-        print("🔵 AppBlockingManager.update: netPoints=\(netPoints), earnedPoints=\(earnedPoints), lastNetPoints=\(lastNetPoints ?? -999)")
+        print("🔵 AppBlockingManager.update: netPoints=\(netPoints), floor=\(floorPoints), earned=\(earnedPoints), last=\(lastNetPoints ?? -999)")
 
         // Backstop: if the app knows more minutes have been used than the
         // ceiling allows, apply the lockout here. Covers the case where the
@@ -79,28 +96,28 @@ final class AppBlockingManager: ObservableObject {
 
         isHardBlocked = false
 
-        if netPoints < blockingThreshold {
-            print("🔴 Below threshold — applying restrictions")
+        if effectivePoints < blockingThreshold {
             applyRestrictions()
             NotificationScheduler.cancelScreenTimeWarning()
             NotificationScheduler.cancelBlockingWarning()
 
-        } else if netPoints <= warningThreshold {
-            print("🟡 Warning zone (\(netPoints) pts) — removing restrictions")
-            removeRestrictions()
+        } else if effectivePoints <= warningThreshold {
+            removeRestrictions(reason: "warning zone net=\(netPoints) floor=\(floorPoints) earned=\(earnedPoints)")
             if let last = lastNetPoints, last > warningThreshold {
                 print("⚠️ Crossed into warning zone — firing warning notification")
-                NotificationScheduler.scheduleScreenTimeWarning(minutesLeft: netPoints)
+                NotificationScheduler.scheduleScreenTimeWarning(minutesLeft: effectivePoints)
             }
 
         } else {
-            print("🟢 Above warning (\(netPoints) pts) — removing restrictions")
-            removeRestrictions()
+            removeRestrictions(reason: "above warning net=\(netPoints) floor=\(floorPoints) earned=\(earnedPoints)")
             NotificationScheduler.cancelBlockingWarning()
             NotificationScheduler.cancelScreenTimeWarning()
         }
     }
 
+    /// Picks up a block the extension applied while the app was closed.
+    /// Only ever adds a block — lifting one is update()'s job, because the
+    /// extension's flag also goes false when iOS stops monitoring mid-day.
     func syncFromExtension() {
         if HardBlock.clearIfStale(in: defaults) {
             print("🌅 Cleared stale daily-limit lockout from a previous day")
@@ -111,7 +128,7 @@ final class AppBlockingManager: ObservableObject {
 
         if hardBlocked {
             print("🔵 syncFromExtension: daily limit lockout active")
-            if !isBlocking { applyRestrictions() }
+            applyRestrictions()
             return
         }
 
@@ -119,9 +136,16 @@ final class AppBlockingManager: ObservableObject {
         print("🔵 syncFromExtension: extensionIsBlocking=\(extensionIsBlocking)")
         if extensionIsBlocking && !isBlocking {
             applyRestrictions()
-        } else if !extensionIsBlocking && isBlocking {
-            removeRestrictions()
         }
+    }
+
+    /// Rewrites the shield if we think we're blocking. Shield writes made
+    /// while iOS considered the app unauthorized are silently dropped, so
+    /// call this once authorization is confirmed.
+    func reassertIfBlocking() {
+        guard isBlocking || isHardBlocked else { return }
+        appendDebugLog("MAIN_BLOCK reassert after authorization confirmed")
+        applyRestrictions()
     }
 
     func startAutoMonitoring(selection: FamilyActivitySelection,
@@ -135,13 +159,12 @@ final class AppBlockingManager: ObservableObject {
     }
 
     private func applyRestrictions() {
-        // No authorization guard here on purpose. The cached isAuthorized flag
-        // could read false at launch even when access was approved, and that
-        // guard silently skipped every block. The extension never had this
-        // check either. If access really is revoked, setting the shield is a
-        // harmless no-op.
-        if !FamilyControlsManager.shared.isAuthorized {
-            appendDebugLog("MAIN_BLOCK note: cached auth flag false (live=\(AuthorizationCenter.shared.authorizationStatus)) — applying anyway")
+        // No authorization guard: the cached flag can be wrong. But if iOS
+        // says we're not approved right now, the write below will be ignored,
+        // so ask for a silent re-confirm (reassertIfBlocking runs after it).
+        let liveStatus = AuthorizationCenter.shared.authorizationStatus
+        if liveStatus != .approved {
+            FamilyControlsManager.shared.confirmAuthorizationSilently(reason: "block attempted while status=\(liveStatus)")
         }
 
         // Prefer the in-memory selection; fall back to the copy saved in the
@@ -168,25 +191,25 @@ final class AppBlockingManager: ObservableObject {
         isBlocking = true
         defaults?.set(true, forKey: SharedKeys.isBlocking)
         if !wasBlocking {
-            appendDebugLog("MAIN_BLOCK applied apps=\(appTokens.count) cats=\(categoryTokens.count)")
+            appendDebugLog("MAIN_BLOCK applied apps=\(appTokens.count) cats=\(categoryTokens.count) auth=\(liveStatus)")
         }
         print("🔒 Apps blocked")
     }
 
-    private func removeRestrictions() {
+    private func removeRestrictions(reason: String) {
         let wasBlocking = isBlocking || (defaults?.bool(forKey: SharedKeys.isBlocking) ?? false)
         store.shield.applications = nil
         store.shield.applicationCategories = nil
         isBlocking = false
         defaults?.set(false, forKey: SharedKeys.isBlocking)
         if wasBlocking {
-            appendDebugLog("MAIN_UNBLOCK lastNetPoints=\(lastNetPoints ?? -999)")
+            appendDebugLog("MAIN_UNBLOCK \(reason)")
         }
-        print("🔓 Apps unblocked")
+        print("🔓 Apps unblocked (\(reason))")
     }
 
     func clearAll() {
-        removeRestrictions()
+        removeRestrictions(reason: "clearAll")
         HardBlock.clear(in: defaults)
         isHardBlocked = false
         NotificationScheduler.cancelScreenTimeWarning()
