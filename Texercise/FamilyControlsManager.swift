@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import UIKit
 import FamilyControls
 import ManagedSettings
 
@@ -15,24 +14,29 @@ final class FamilyControlsManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let appGroup = "group.com.samring.texercise"
 
-    /// Set once the user has approved access at least once. Lets us re-confirm
-    /// silently on later launches without ever surprising a brand-new user
-    /// with a permission prompt.
-    private let everApprovedKey = "familyControlsEverApproved"
-    private var everApproved: Bool {
-        get { UserDefaults.standard.bool(forKey: everApprovedKey) }
-        set { UserDefaults.standard.set(newValue, forKey: everApprovedKey) }
+    /// iOS 26 reports a second approved state, "Approved with Data Access".
+    /// The app only accepted `.approved`, so whenever iOS reported the other
+    /// one the app thought access was gone: the Grant Access button kept
+    /// coming back, and each false "regained access" kicked off a monitoring
+    /// restart that reset the usage counters. Written without naming the new
+    /// case so it compiles on any SDK.
+    nonisolated static func isApproved(_ status: AuthorizationStatus) -> Bool {
+        switch status {
+        case .approved:
+            return true
+        case .denied, .notDetermined:
+            return false
+        @unknown default:
+            return String(describing: status).lowercased().hasPrefix("approved")
+        }
     }
-
-    private var isConfirming = false
-    private var lastConfirmAttempt: Date = .distantPast
 
     private init() {
         checkAuthorization()
 
-        // AuthorizationCenter often reports .notDetermined for a moment at
-        // launch before the real status loads, so follow the publisher rather
-        // than trusting a single read.
+        // AuthorizationCenter can report .notDetermined for a moment at launch
+        // before the real status loads, so follow the publisher rather than
+        // trusting a single read.
         AuthorizationCenter.shared.$authorizationStatus
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
@@ -40,53 +44,10 @@ final class FamilyControlsManager: ObservableObject {
                 self?.apply(status, source: "publisher")
             }
             .store(in: &cancellables)
-
-        // With .individual authorization, a relaunched app process can read
-        // .notDetermined even though the user approved — and while it does,
-        // iOS ignores this process's shield writes. The debug log showed
-        // exactly that: blocks "applied" with live=Not Determined that never
-        // took effect. Re-requesting is silent when access is still granted,
-        // so do it on every launch and every return to the foreground.
-        NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.confirmAuthorizationSilently(reason: "foreground")
-            }
-            .store(in: &cancellables)
-
-        confirmAuthorizationSilently(reason: "launch")
     }
 
     func checkAuthorization() {
         apply(AuthorizationCenter.shared.authorizationStatus, source: "check")
-    }
-
-    /// Re-confirms access without a prompt, provided the user has approved
-    /// before. If access really was revoked, iOS shows its normal Face ID
-    /// prompt, which is the right thing to ask for anyway.
-    func confirmAuthorizationSilently(reason: String) {
-        // A saved app selection is only possible after approval, so it also
-        // counts — covers installs that approved before this flag existed.
-        guard everApproved || ScreenTimeCategoryStore.shared.hasSelection else { return }
-        guard !isConfirming else { return }
-        // Throttle: applyRestrictions can call this several times a second.
-        guard Date().timeIntervalSince(lastConfirmAttempt) > 30 else { return }
-
-        isConfirming = true
-        lastConfirmAttempt = Date()
-        appendDebugLog("AUTH confirm start reason=\(reason) status=\(AuthorizationCenter.shared.authorizationStatus)")
-
-        Task { @MainActor in
-            defer { isConfirming = false }
-            do {
-                try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-                appendDebugLog("AUTH confirm ok status=\(AuthorizationCenter.shared.authorizationStatus)")
-                apply(.approved, source: "confirm")
-            } catch {
-                appendDebugLog("AUTH confirm failed: \(error.localizedDescription)")
-                print("❌ Silent authorization confirm failed: \(error.localizedDescription)")
-            }
-        }
     }
 
     func requestAuthorization() async {
@@ -94,7 +55,10 @@ final class FamilyControlsManager: ObservableObject {
             try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
             authorizationError = nil
             print("✅ FamilyControls authorization granted")
-            apply(.approved, source: "request")
+            apply(AuthorizationCenter.shared.authorizationStatus, source: "request", assumeApproved: true)
+            // The user explicitly granted access, so a missing schedule here
+            // is real (e.g. first setup, or access was switched off).
+            ScreenTimeCategoryStore.shared.startMonitoringIfNeeded()
         } catch {
             isAuthorized = false
             authorizationError = error.localizedDescription
@@ -109,7 +73,6 @@ final class FamilyControlsManager: ObservableObject {
             case .success:
                 DispatchQueue.main.async {
                     self.isAuthorized = false
-                    self.everApproved = false
                     print("✅ FamilyControls authorization revoked")
                 }
             case .failure(let error):
@@ -120,38 +83,33 @@ final class FamilyControlsManager: ObservableObject {
 
     // MARK: - Internals
 
-    private func apply(_ status: AuthorizationStatus, source: String) {
+    private func apply(_ status: AuthorizationStatus, source: String, assumeApproved: Bool = false) {
         let wasAuthorized = isAuthorized
 
-        // A one-off synchronous read can briefly report .notDetermined even
-        // when access is approved — that's what kept bringing back the Grant
-        // Access button. Don't let a one-off read downgrade an approved state.
-        // The publisher stays authoritative for genuine revokes.
+        // A one-off read can briefly report .notDetermined even when access is
+        // approved. Don't let that downgrade an approved state; the publisher
+        // stays authoritative for genuine revokes.
         if wasAuthorized && status == .notDetermined && source != "publisher" {
             print("🔐 Ignoring transient .notDetermined (\(source)) — keeping approved")
             return
         }
 
-        let nowAuthorized = (status == .approved)
+        let nowAuthorized = assumeApproved || Self.isApproved(status)
         isAuthorized = nowAuthorized
-        if nowAuthorized { everApproved = true }
 
         if wasAuthorized != nowAuthorized {
             appendDebugLog("AUTH \(source) status=\(status) authorized=\(nowAuthorized)")
             print("🔐 FamilyControls status (\(source)): \(status)")
         }
 
-        if nowAuthorized {
-            // Access coming back may mean iOS wiped the DeviceActivity schedule;
-            // ensureMonitoring restarts it only if it's actually missing.
-            if !wasAuthorized {
-                ScreenTimeCategoryStore.shared.startMonitoringIfNeeded()
-            }
-            // Any shield written while we weren't recognised as authorized was
-            // dropped by iOS — write it again now that we are.
-            if source == "confirm" || source == "request" || !wasAuthorized {
-                AppBlockingManager.shared.reassertIfBlocking()
-            }
+        // Deliberately no monitoring restart here. Restarts reset the usage
+        // counters; they now happen only on an explicit grant (above), on a
+        // new day, or when a settings change requires it.
+
+        // Shield writes made while iOS didn't yet recognise this process as
+        // authorized can be dropped — rewrite once it does.
+        if nowAuthorized && !wasAuthorized {
+            AppBlockingManager.shared.reassertIfBlocking()
         }
     }
 

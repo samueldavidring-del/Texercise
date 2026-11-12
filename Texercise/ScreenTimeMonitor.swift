@@ -25,6 +25,7 @@ final class ScreenTimeMonitor {
     private let sessionDefaults = UserDefaults.standard
     private let sessionDateKey = "monitoringSessionDate"
     private let sessionHashKey = "monitoringSessionHash"
+    private let lastMissingRestartKey = "screenTimeLastMissingScheduleRestart"
 
     private var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -74,10 +75,32 @@ final class ScreenTimeMonitor {
         // guard alone can't see that, so it would skip the restart and
         // tracking would silently stay dead for the rest of the day.
         let isRegistered = center.activities.contains(.daily)
+        let alreadyStartedToday = lastStartDate == todayString && lastHash == currentHash
 
-        if isRegistered && lastStartDate == todayString && lastHash == currentHash {
+        if isRegistered && alreadyStartedToday {
             print("✅ DeviceActivity monitoring already started today — skipping to preserve counters")
             return
+        }
+
+        // Every restart resets DeviceActivity's counters, and afterwards the
+        // events don't reliably say how much was used before — so a restart
+        // mid-day costs tracking accuracy. The schedule list can also read
+        // empty while this process isn't yet recognised as authorized, which
+        // caused a run of needless restarts. So when today's monitoring was
+        // already started, only treat a missing schedule as real if access is
+        // confirmed, and never more than once every 30 minutes.
+        if alreadyStartedToday {
+            let status = AuthorizationCenter.shared.authorizationStatus
+            guard FamilyControlsManager.isApproved(status) else {
+                appendDebugLog("MAIN_MONITOR missing-schedule check skipped — status=\(status)")
+                return
+            }
+            let lastRestart = sessionDefaults.double(forKey: lastMissingRestartKey)
+            guard Date().timeIntervalSince1970 - lastRestart > 30 * 60 else {
+                appendDebugLog("MAIN_MONITOR missing-schedule restart throttled")
+                return
+            }
+            sessionDefaults.set(Date().timeIntervalSince1970, forKey: lastMissingRestartKey)
         }
 
         let reason: String

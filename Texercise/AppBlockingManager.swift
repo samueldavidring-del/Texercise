@@ -159,13 +159,9 @@ final class AppBlockingManager: ObservableObject {
     }
 
     private func applyRestrictions() {
-        // No authorization guard: the cached flag can be wrong. But if iOS
-        // says we're not approved right now, the write below will be ignored,
-        // so ask for a silent re-confirm (reassertIfBlocking runs after it).
+        // No authorization guard: the status read can be wrong. If iOS drops
+        // this write, FamilyControlsManager re-asserts it once access is seen.
         let liveStatus = AuthorizationCenter.shared.authorizationStatus
-        if liveStatus != .approved {
-            FamilyControlsManager.shared.confirmAuthorizationSilently(reason: "block attempted while status=\(liveStatus)")
-        }
 
         // Prefer the in-memory selection; fall back to the copy saved in the
         // App Group (the same one the extension blocks with).
