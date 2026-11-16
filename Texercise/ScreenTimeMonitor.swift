@@ -71,25 +71,32 @@ final class ScreenTimeMonitor {
                                         maxDailyMinutes: limit)
 
         // iOS deletes every DeviceActivity schedule when Screen Time access is
-        // revoked (including toggling it off and on in Settings). The session
-        // guard alone can't see that, so it would skip the restart and
-        // tracking would silently stay dead for the rest of the day.
+        // revoked (including toggling it off and on in Settings), so check
+        // whether the schedule is actually registered.
         let isRegistered = center.activities.contains(.daily)
-        let alreadyStartedToday = lastStartDate == todayString && lastHash == currentHash
+        let sameSettings = lastHash == currentHash
 
-        if isRegistered && alreadyStartedToday {
-            print("✅ DeviceActivity monitoring already started today — skipping to preserve counters")
+        // The schedule repeats every day (00:00–23:59) and the extension
+        // resets the day's counters in intervalDidStart at midnight. So a new
+        // day is NOT a reason to restart. Restarting a running schedule resets
+        // DeviceActivity's counters, and the debug log showed tracking going
+        // silent all day after one of these routine morning restarts.
+        if isRegistered && sameSettings {
+            if lastStartDate != todayString {
+                sessionDefaults.set(todayString, forKey: sessionDateKey)
+                appendDebugLog("MAIN_MONITOR new day — schedule already running, no restart")
+                print("✅ New day — repeating schedule already running, leaving it alone")
+            } else {
+                print("✅ DeviceActivity monitoring already running — skipping to preserve counters")
+            }
             return
         }
 
-        // Every restart resets DeviceActivity's counters, and afterwards the
-        // events don't reliably say how much was used before — so a restart
-        // mid-day costs tracking accuracy. The schedule list can also read
-        // empty while this process isn't yet recognised as authorized, which
-        // caused a run of needless restarts. So when today's monitoring was
-        // already started, only treat a missing schedule as real if access is
-        // confirmed, and never more than once every 30 minutes.
-        if alreadyStartedToday {
+        // A missing schedule is the one case that needs a restart without a
+        // settings change. The schedule list can read empty while this process
+        // isn't yet recognised as authorized, so only trust it when access is
+        // confirmed, and never restart for this more than once per 30 minutes.
+        if !isRegistered {
             let status = AuthorizationCenter.shared.authorizationStatus
             guard FamilyControlsManager.isApproved(status) else {
                 appendDebugLog("MAIN_MONITOR missing-schedule check skipped — status=\(status)")
@@ -103,14 +110,18 @@ final class ScreenTimeMonitor {
             sessionDefaults.set(Date().timeIntervalSince1970, forKey: lastMissingRestartKey)
         }
 
-        let reason: String
-        if !isRegistered {
-            reason = "schedule missing (access was reset)"
-        } else if lastStartDate != todayString {
-            reason = "new day"
-        } else {
-            reason = "settings changed"
+        // Settings changes made after usage was logged today are meant to wait
+        // until tomorrow (the Settings screen says so). Honour that here too —
+        // otherwise the next foreground would restart mid-day anyway.
+        if isRegistered && !sameSettings && lastStartDate == todayString {
+            let log = (defaults?.array(forKey: SharedKeys.screenTimeEventLog) as? [String]) ?? []
+            if !log.isEmpty {
+                print("⏳ Settings changed but usage already logged today — applying tomorrow")
+                return
+            }
         }
+
+        let reason = isRegistered ? "settings changed" : "schedule missing"
         appendDebugLog("MAIN_MONITOR start reason=\(reason)")
         print("⚡️ Starting DeviceActivity monitoring (\(reason)) hash=\(currentHash) storedHash=\(lastHash) date=\(lastStartDate)")
         startMonitoringInternal(selection: selection,
