@@ -2,60 +2,81 @@ import Vision
 import CoreGraphics
 import Foundation
 
+/// One frame's measurement of the sit-up position.
+struct SitupReading {
+    /// Shoulder → hip → knee angle in degrees. ~160–180 lying flat,
+    /// ~60–100 fully up, ~120–140 for a crunch.
+    let torsoAngle: Double
+    /// Which side of the body was used ("left", "right" or "both").
+    let side: String
+    /// Lowest confidence among the three joints used.
+    let confidence: Float
+}
+
 struct SitupDetector {
+
+    /// Joints below this confidence are ignored.
+    static let minConfidence: Float = 0.2
 
     // MARK: - Public API
 
-    static func detectSitup(observation: VNHumanBodyPoseObservation) -> Bool? {
+    /// Measures the torso angle from whichever side of the body the camera
+    /// can actually see. Returns nil when no full shoulder-hip-knee chain is
+    /// visible.
+    ///
+    /// Why this changed (it counted zero reps):
+    /// 1. It required BOTH shoulders, hips and knees. With the phone to the
+    ///    side, as the guide asks, the far side of the body is hidden, so the
+    ///    frame was usually thrown away.
+    /// 2. It also required shoulders to be "above" hips on Vision's y axis.
+    ///    Sit-ups run in landscape, but the camera feeds Vision a fixed
+    ///    portrait image, so "up" in the room is sideways in the image. That
+    ///    check depended on which way your head pointed, not on sitting up.
+    ///    The angle alone is the same in any orientation, so only it is used.
+    static func measure(observation: VNHumanBodyPoseObservation) -> SitupReading? {
         guard let points = try? observation.recognizedPoints(.all) else { return nil }
 
-        // Use shoulder midpoint instead of neck — more reliably detected
-        guard let leftShoulder  = getPoint(points, .leftShoulder,  minConfidence: 0.2),
-              let rightShoulder = getPoint(points, .rightShoulder, minConfidence: 0.2),
-              let leftHip       = getPoint(points, .leftHip,       minConfidence: 0.2),
-              let rightHip      = getPoint(points, .rightHip,      minConfidence: 0.2),
-              let leftKnee      = getPoint(points, .leftKnee,      minConfidence: 0.2),
-              let rightKnee     = getPoint(points, .rightKnee,     minConfidence: 0.2) else {
+        let left  = chain(points, .leftShoulder,  .leftHip,  .leftKnee)
+        let right = chain(points, .rightShoulder, .rightHip, .rightKnee)
+
+        switch (left, right) {
+        case let (l?, r?):
+            // Both sides visible (rare from the side) — average them.
+            return SitupReading(
+                torsoAngle: (l.angle + r.angle) / 2,
+                side: "both",
+                confidence: min(l.confidence, r.confidence)
+            )
+        case let (l?, nil):
+            return SitupReading(torsoAngle: l.angle, side: "left", confidence: l.confidence)
+        case let (nil, r?):
+            return SitupReading(torsoAngle: r.angle, side: "right", confidence: r.confidence)
+        default:
             return nil
         }
+    }
 
-        let shoulderMid = midpoint(leftShoulder, rightShoulder)
-        let hipMid      = midpoint(leftHip, rightHip)
-        let kneeMid     = midpoint(leftKnee, rightKnee)
-
-        // Torso angle: shoulder → hip → knee
-        // In the "up" position (crunch) the torso folds toward the knees,
-        // making this angle smaller (more acute).
-        let torsoAngle = angle(p1: shoulderMid, p2: hipMid, p3: kneeMid)
-
-        // In Vision coordinates y=0 is at the BOTTOM of the frame (y increases upward).
-        // When lying flat, shoulders and hips have similar y.
-        // When sitting up (crunching), shoulders rise — their y value INCREASES
-        // relative to hips. So sitting up = shoulderMid.y > hipMid.y.
-        let shouldersAboveHips = shoulderMid.y > hipMid.y
-
-        // Angle threshold: lying flat ≈ 150–170°, sitting up ≈ 50–90°.
-        // Use 110° as the threshold — clear crunch without being too demanding.
-        let isCrunched = torsoAngle < 110
-
-        print("🏋️ Situp — torsoAngle=\(Int(torsoAngle))° shouldersAboveHips=\(shouldersAboveHips) isCrunched=\(isCrunched)")
-
-        return isCrunched && shouldersAboveHips
+    /// Kept for any older callers: true when clearly in the "up" position.
+    static func detectSitup(observation: VNHumanBodyPoseObservation) -> Bool? {
+        guard let reading = measure(observation: observation) else { return nil }
+        return reading.torsoAngle < PoseRepCounter.situpUpAngle
     }
 
     // MARK: - Helpers
 
-    private static func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
-        CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-    }
-
-    private static func getPoint(
+    private static func chain(
         _ points: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint],
-        _ joint: VNHumanBodyPoseObservation.JointName,
-        minConfidence: Float = 0.2
-    ) -> CGPoint? {
-        guard let point = points[joint], point.confidence > minConfidence else { return nil }
-        return CGPoint(x: point.location.x, y: point.location.y)
+        _ shoulder: VNHumanBodyPoseObservation.JointName,
+        _ hip: VNHumanBodyPoseObservation.JointName,
+        _ knee: VNHumanBodyPoseObservation.JointName
+    ) -> (angle: Double, confidence: Float)? {
+        guard let s = points[shoulder], s.confidence > minConfidence,
+              let h = points[hip],      h.confidence > minConfidence,
+              let k = points[knee],     k.confidence > minConfidence else {
+            return nil
+        }
+        let a = angle(p1: s.location, p2: h.location, p3: k.location)
+        return (a, min(s.confidence, h.confidence, k.confidence))
     }
 
     private static func angle(p1: CGPoint, p2: CGPoint, p3: CGPoint) -> Double {

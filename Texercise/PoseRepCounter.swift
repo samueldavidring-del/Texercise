@@ -27,7 +27,16 @@ final class PoseRepCounter {
     private var lastLungeCountTime: Date?
     private let lungeDebounceDuration: TimeInterval = 2.0  // Longer debounce
     
-    // Sit-up/Crunch tracking with debounce
+    // Sit-up tracking: hysteresis between an "up" and a "down" torso angle
+    // (shoulder → hip → knee). Lying flat reads ~160–180°.
+    /// Torso angle at or below which a rep counts.
+    static let situpUpAngle: Double = 115
+    /// Torso angle above which you're back down and the next rep can count.
+    static let situpDownAngle: Double = 145
+    private var situpIsUp = false
+    private var situpCycleMinAngle: Double = 180
+    private var situpMissingFrames = 0
+    private let situpMissingLogFrames = 30   // ~2s at 15fps
     private var lastCrunchCountTime: Date?
     private let crunchDebounceDuration: TimeInterval = 0.5
     
@@ -46,6 +55,9 @@ final class PoseRepCounter {
         lastLungeDetection = false
         lastLungeCountTime = nil
         lastCrunchCountTime = nil
+        situpIsUp = false
+        situpCycleMinAngle = 180
+        situpMissingFrames = 0
         lastPushupCountTime = nil
         consecutiveValidFrames = 0
         consecutiveInvalidFrames = 0
@@ -100,21 +112,63 @@ final class PoseRepCounter {
     }
     
     private func processCrunch(observation: VNHumanBodyPoseObservation) -> Int {
-        let isInUpPosition = SitupDetector.detectSitup(observation: observation) ?? false
-        
-        let now = Date()
-        let canCount = lastCrunchCountTime == nil || now.timeIntervalSince(lastCrunchCountTime!) > crunchDebounceDuration
-        
-        // Count on transition to up position with debounce
-        if isInUpPosition && !wasInPosition && canCount {
-            repCount += 1
-            lastCrunchCountTime = now
-            AudioServicesPlaySystemSound(1520)
-            print("🏋️ Crunch counted! Total: \(repCount)")
+        guard let reading = SitupDetector.measure(observation: observation) else {
+            // Body not visible this frame. Keep the current up/down state —
+            // a dropped frame mid-rep shouldn't count or cancel anything.
+            situpMissingFrames += 1
+            if situpMissingFrames == situpMissingLogFrames {
+                logSitup("SITUP body not visible for ~2s — no full shoulder-hip-knee chain on either side")
+            }
+            return repCount
         }
-        
-        wasInPosition = isInUpPosition
+        situpMissingFrames = 0
+        let angle = reading.torsoAngle
+
+        // Hysteresis: count once on reaching "up", then require a clear
+        // return to "down" before the next rep can count. The old version
+        // flipped state on every frame, so one noisy frame could cost a rep.
+        if !situpIsUp {
+            situpCycleMinAngle = min(situpCycleMinAngle, angle)
+
+            let now = Date()
+            let canCount = lastCrunchCountTime == nil || now.timeIntervalSince(lastCrunchCountTime!) > crunchDebounceDuration
+
+            if angle < Self.situpUpAngle && canCount {
+                repCount += 1
+                situpIsUp = true
+                lastCrunchCountTime = now
+                AudioServicesPlaySystemSound(1520)
+                logSitup("SITUP rep=\(repCount) angle=\(Int(angle)) side=\(reading.side) conf=\(String(format: "%.2f", reading.confidence))")
+                print("🏋️ Sit-up counted! Total: \(repCount)")
+            } else if angle > Self.situpDownAngle {
+                // Back flat without counting. If they got part-way, record how
+                // close they came so thresholds can be tuned from real data.
+                if situpCycleMinAngle < Self.situpDownAngle - 10 {
+                    logSitup("SITUP near-miss minAngle=\(Int(situpCycleMinAngle)) needed<\(Int(Self.situpUpAngle)) side=\(reading.side)")
+                }
+                situpCycleMinAngle = 180
+            }
+        } else if angle > Self.situpDownAngle {
+            situpIsUp = false
+            situpCycleMinAngle = 180
+        }
+
         return repCount
+    }
+
+    private func logSitup(_ message: String) {
+        let defaults = UserDefaults(suiteName: "group.com.samring.texercise")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        let line = "[\(formatter.string(from: Date()))] \(message)\n"
+        var log = defaults?.string(forKey: SharedKeys.debugLog) ?? ""
+        log += line
+        if log.count > 20_000 {
+            let trimmed = String(log.suffix(15_000))
+            log = String(trimmed.drop(while: { $0 != "\n" }).dropFirst())
+        }
+        defaults?.set(log, forKey: SharedKeys.debugLog)
     }
     
     private func processLunge(observation: VNHumanBodyPoseObservation) -> Int {
