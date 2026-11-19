@@ -15,8 +15,11 @@ struct SitupReading {
 
 struct SitupDetector {
 
-    /// Joints below this confidence are ignored.
-    static let minConfidence: Float = 0.2
+    /// Joints below this confidence are ignored. Vision's confidence runs
+    /// low for people lying down — the one rep counted in testing came in at
+    /// 0.21, barely over the old 0.2 cut-off — so this is looser than the
+    /// other exercises. The up/down hysteresis absorbs the extra noise.
+    static let minConfidence: Float = 0.1
 
     // MARK: - Public API
 
@@ -60,6 +63,16 @@ struct SitupDetector {
     static func detectSitup(observation: VNHumanBodyPoseObservation) -> Bool? {
         guard let reading = measure(observation: observation) else { return nil }
         return reading.torsoAngle < PoseRepCounter.situpUpAngle
+    }
+
+    /// Per-joint confidences for the debug log, e.g. "L 0.05/0.31/0.12 R 0.40/0.38/0.02"
+    /// (shoulder/hip/knee on each side).
+    static func jointSummary(observation: VNHumanBodyPoseObservation) -> String {
+        guard let points = try? observation.recognizedPoints(.all) else { return "no points" }
+        func c(_ j: VNHumanBodyPoseObservation.JointName) -> String {
+            String(format: "%.2f", points[j]?.confidence ?? 0)
+        }
+        return "L \(c(.leftShoulder))/\(c(.leftHip))/\(c(.leftKnee)) R \(c(.rightShoulder))/\(c(.rightHip))/\(c(.rightKnee))"
     }
 
     // MARK: - Helpers

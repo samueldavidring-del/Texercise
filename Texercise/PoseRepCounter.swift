@@ -117,7 +117,7 @@ final class PoseRepCounter {
             // a dropped frame mid-rep shouldn't count or cancel anything.
             situpMissingFrames += 1
             if situpMissingFrames == situpMissingLogFrames {
-                logSitup("SITUP body not visible for ~2s — no full shoulder-hip-knee chain on either side")
+                logSitup("SITUP no shoulder-hip-knee chain for ~2s — conf \(SitupDetector.jointSummary(observation: observation))")
             }
             return repCount
         }
@@ -156,7 +156,7 @@ final class PoseRepCounter {
         return repCount
     }
 
-    private func logSitup(_ message: String) {
+    func logSitup(_ message: String) {
         let defaults = UserDefaults(suiteName: "group.com.samring.texercise")
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
